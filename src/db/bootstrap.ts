@@ -11,6 +11,7 @@ import { seedDatabase } from './seed';
 async function main() {
   console.log('Connecting to database...');
   const { db, sqlite } = getDatabase();
+  if (!sqlite) throw new Error('Database connection failed');
 
   console.log('Running seed...');
   await seedDatabase();
