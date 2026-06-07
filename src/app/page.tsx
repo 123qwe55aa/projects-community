@@ -47,6 +47,12 @@ export default function Home() {
           >
             View Decisions
           </a>
+          <a
+            href="/map"
+            className="rounded-full border border-zinc-700 px-6 py-2.5 text-sm font-medium text-zinc-300 hover:border-zinc-500 transition"
+          >
+            Community Map
+          </a>
         </div>
       </div>
     </div>
