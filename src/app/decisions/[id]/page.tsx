@@ -124,6 +124,14 @@ export default async function DecisionDetailPage({
             >
               Realizer Chat
             </Link>
+            {decisionCandidates.length >= 2 && (
+              <Link
+                href={`/decisions/${decision.id}/compare`}
+                className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 transition"
+              >
+                Compare
+              </Link>
+            )}
             <div className="flex items-center gap-2">
               <span className="text-xs text-zinc-500">State:</span>
               <ChangeStateForm decisionId={decision.id} currentState={decision.state} />

@@ -2,8 +2,8 @@
 
 import { nanoid } from 'nanoid';
 import { getDatabase } from '@/db';
-import { eq } from 'drizzle-orm';
-import { projects, decisions, decisionLinks, conversations, candidates } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { projects, decisions, decisionLinks, conversations, candidates, adoptionSnapshots } from '@/db/schema';
 import { revalidatePath } from 'next/cache';
 
 export async function createProjectAction(formData: FormData) {
@@ -98,6 +98,118 @@ export async function updateDecisionStateAction(formData: FormData) {
 
   revalidatePath('/decisions');
   revalidatePath(`/decisions/${decisionId}`);
+}
+
+export async function createCandidateAction(formData: FormData) {
+  const decisionId = formData.get('decisionId') as string;
+  const name = formData.get('name') as string;
+  const summary = formData.get('summary') as string | null;
+
+  if (!decisionId || !name?.trim()) {
+    throw new Error('Decision ID and candidate name are required');
+  }
+
+  const { db } = getDatabase();
+  const candidateId = nanoid();
+
+  await db.insert(candidates).values({
+    id: candidateId,
+    decisionId,
+    name: name.trim(),
+    currentFormSummary: summary?.trim() || null,
+  });
+
+  revalidatePath(`/decisions/${decisionId}`);
+  revalidatePath(`/decisions/${decisionId}/compare`);
+
+  return { candidateId };
+}
+
+export async function adoptCandidateAction(formData: FormData) {
+  const decisionId = formData.get('decisionId') as string;
+  const candidateId = formData.get('candidateId') as string;
+  const candidateSummary = formData.get('candidateSummary') as string | null;
+  const reasoning = formData.get('reasoning') as string | null;
+
+  if (!decisionId || !candidateId || !reasoning?.trim()) {
+    throw new Error('Decision ID, candidate ID, and reasoning are required');
+  }
+
+  const { db } = getDatabase();
+
+  // Use Drizzle transaction for atomicity
+  const result = await db.transaction(async (tx) => {
+    // 1. Fetch the candidate to get its summary
+    const [candidate] = await tx
+      .select()
+      .from(candidates)
+      .where(eq(candidates.id, candidateId));
+
+    if (!candidate) {
+      throw new Error('Candidate not found');
+    }
+
+    // 2. Fetch the decision to get projectId
+    const [decision] = await tx
+      .select()
+      .from(decisions)
+      .where(eq(decisions.id, decisionId));
+
+    if (!decision) {
+      throw new Error('Decision not found');
+    }
+
+    const summary = candidateSummary?.trim() || candidate.currentFormSummary || candidate.name;
+
+    // 3. Find any current adoption for this decision
+    const [currentAdoption] = await tx
+      .select()
+      .from(adoptionSnapshots)
+      .where(
+        and(
+          eq(adoptionSnapshots.decisionId, decisionId),
+          eq(adoptionSnapshots.isCurrent, true),
+        ),
+      );
+
+    // 4. Create new adoption snapshot
+    const newSnapshotId = nanoid();
+    await tx.insert(adoptionSnapshots).values({
+      id: newSnapshotId,
+      decisionId,
+      candidateId,
+      projectId: decision.projectId || null,
+      candidateSummary: summary,
+      reasoning: reasoning.trim(),
+      isCurrent: true,
+      supersededById: null,
+      adoptedAt: new Date(),
+    });
+
+    // 5. If there's a previous current adoption, supersede it with the new snapshot's id
+    if (currentAdoption) {
+      await tx
+        .update(adoptionSnapshots)
+        .set({
+          isCurrent: false,
+          supersededById: newSnapshotId,
+        })
+        .where(eq(adoptionSnapshots.id, currentAdoption.id));
+    }
+
+    // 6. Set decision state to 'decided'
+    await tx
+      .update(decisions)
+      .set({ state: 'decided', updatedAt: new Date() })
+      .where(eq(decisions.id, decisionId));
+
+    return { snapshotId: newSnapshotId };
+  });
+
+  revalidatePath(`/decisions/${decisionId}`);
+  revalidatePath(`/decisions/${decisionId}/compare`);
+
+  return result;
 }
 
 export async function addCandidateAction(formData: FormData) {
