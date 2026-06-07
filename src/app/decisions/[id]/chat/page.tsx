@@ -95,7 +95,7 @@ export default async function DecisionChatPage({
   }));
 
   return (
-    <div className="flex flex-1 flex-col h-[calc(100dvh-2rem)] mx-auto w-full">
+    <div className="flex flex-1 flex-col min-h-0 mx-auto w-full" style={{ height: 'calc(100dvh - 3rem)' }}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 shrink-0">
         <Link

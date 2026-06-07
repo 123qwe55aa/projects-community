@@ -383,6 +383,11 @@ export async function updateResearchJobStatus(id: string, input: {
   return row ?? null;
 }
 
+export async function getResearchJob(id: string) {
+  const [row] = await db().select().from(s.researchJobs).where(eq(s.researchJobs.id, id));
+  return row ?? null;
+}
+
 export async function listResearchJobs(conversationId: string) {
   return db().select().from(s.researchJobs)
     .where(eq(s.researchJobs.conversationId, conversationId))

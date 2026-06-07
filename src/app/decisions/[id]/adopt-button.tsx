@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { adoptCandidateAction } from '@/app/actions';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 export function AdoptButton({
   decisionId,
@@ -16,7 +17,8 @@ export function AdoptButton({
   candidateSummary: string | null;
   decisionState: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +30,7 @@ export function AdoptButton({
     try {
       await adoptCandidateAction(formData);
       setSuccess(true);
-      setOpen(false);
+      setReasoningOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to adopt candidate');
       setLoading(false);
@@ -38,7 +40,7 @@ export function AdoptButton({
   if (success) {
     return (
       <div className="shrink-0 rounded-full border border-green-700 bg-green-900/40 px-3 py-1 text-xs text-green-400">
-        Adopted
+        Adopted ✓
       </div>
     );
   }
@@ -46,23 +48,39 @@ export function AdoptButton({
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => setConfirmOpen(true)}
         disabled={decisionState === 'archived'}
         className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Adopt
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">
-              Adopt &ldquo;{candidateName}&rdquo;
-            </h2>
-            <p className="text-sm text-zinc-400">
-              You are adopting this candidate as the decision for this question. The decision state
-              will be set to &ldquo;decided&rdquo;.
-            </p>
+      {/* Step 1: Confirm intent */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={`Adopt "${candidateName}"?`}
+        description="You'll be asked to provide a brief reasoning. The decision state will be set to decided."
+        confirmLabel="Continue"
+        onConfirm={() => {
+          setConfirmOpen(false);
+          setReasoningOpen(true);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+        confirmClassName="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 transition"
+      />
+
+      {/* Step 2: Reasoning form */}
+      {reasoningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-6 space-y-4 shadow-xl">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-white">
+                Adopt &ldquo;{candidateName}&rdquo;
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Provide reasoning for adopting this candidate.
+              </p>
+            </div>
 
             <form
               ref={formRef}
@@ -74,11 +92,11 @@ export function AdoptButton({
               <input type="hidden" name="candidateSummary" value={candidateSummary || ''} />
 
               <div className="space-y-1">
-                <label htmlFor="reasoning" className="text-sm text-zinc-400">
+                <label htmlFor={`reasoning-${candidateId}`} className="text-sm text-zinc-400">
                   Reasoning (why this candidate?)
                 </label>
                 <textarea
-                  id="reasoning"
+                  id={`reasoning-${candidateId}`}
                   name="reasoning"
                   rows={4}
                   required
@@ -87,14 +105,12 @@ export function AdoptButton({
                 />
               </div>
 
-              {error && (
-                <p className="text-sm text-red-400">{error}</p>
-              )}
+              {error && <p className="text-sm text-red-400">{error}</p>}
 
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => { setOpen(false); setError(null); }}
+                  onClick={() => { setReasoningOpen(false); setError(null); }}
                   className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 transition"
                 >
                   Cancel
