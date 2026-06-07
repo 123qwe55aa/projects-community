@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server';
 import { streamText } from 'ai';
-import { openai } from '@ai-sdk/openai';
 import { getDatabase } from '@/db';
 import { decisions, candidates, conversations, messages } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { buildSystemPrompt } from '@/lib/system-prompt';
+import { getAIModel } from '@/lib/ai/provider';
+import { assembleContext } from '@/lib/ai/context-assembler';
+import { generateDecisionSummary } from '@/lib/ai/summarizer';
 
 // Load environment variables from .env.local for local development
 import 'dotenv/config';
@@ -45,34 +47,9 @@ export async function POST(req: NextRequest) {
       .from(candidates)
       .where(eq(candidates.decisionId, decisionId));
 
-    // Determine conversation context
-    const contextType = candidateId ? 'candidate' : 'decision';
-    const contextId = candidateId || decisionId;
-
-    // Find or create conversation
-    let [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.contextType, contextType),
-          eq(conversations.contextId, contextId),
-        ),
-      );
-
-    if (!conversation) {
-      const convId = nanoid();
-      await db.insert(conversations).values({
-        id: convId,
-        contextType,
-        contextId,
-        createdAt: new Date(),
-      });
-      [conversation] = await db
-        .select()
-        .from(conversations)
-        .where(eq(conversations.id, convId));
-    }
+    // Assemble context (conversation, pinned messages, recent history)
+    const ctx = await assembleContext(decisionId, candidateId);
+    const { conversationId } = ctx;
 
     // Build system prompt
     const systemPrompt = buildSystemPrompt({
@@ -89,42 +66,73 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Append pinned message context to system prompt if any pins exist
+    let pinnedContext = '';
+    if (ctx.pinnedMessages.length > 0) {
+      pinnedContext =
+        '\n\n## Pinned Messages (key reference points)\n' +
+        ctx.pinnedMessages
+          .map((m) => `[${m.role.toUpperCase()}]: ${m.content}`)
+          .join('\n\n');
+    }
+
     // Save the latest user message to DB (only the last one, which is the new user message)
     const latestUserMessage = chatMessages.filter((m) => m.role === 'user').pop();
     if (latestUserMessage) {
       await db.insert(messages).values({
         id: nanoid(),
-        conversationId: conversation.id,
+        conversationId,
         role: 'user',
         content: latestUserMessage.content,
         createdAt: new Date(),
       });
     }
 
-    // Build AI SDK messages, excluding system role from history
-    const aiMessages = chatMessages.map((m: { role: string; content: string }) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
-
-    // Determine model
-    const modelId = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    // Build AI SDK messages from the assembled recent history + client-sent messages.
+    // Prefer DB history if available; fall back to client-sent messages.
+    const historyMessages =
+      ctx.recentMessages.length > 0
+        ? ctx.recentMessages.map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          }))
+        : chatMessages.map((m: { role: string; content: string }) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          }));
 
     // Stream the response
     const result = streamText({
-      model: openai(modelId),
-      system: systemPrompt + scopeContext,
-      messages: aiMessages,
+      model: getAIModel(),
+      system: systemPrompt + scopeContext + pinnedContext,
+      messages: historyMessages,
       onFinish: async ({ text }) => {
         // Save assistant response to DB after streaming completes
         if (text) {
           await db.insert(messages).values({
             id: nanoid(),
-            conversationId: conversation.id,
+            conversationId,
             role: 'assistant',
             content: text,
             createdAt: new Date(),
           });
+
+          // Trigger summary refresh every 5 assistant messages (fire-and-forget)
+          try {
+            const allMsgs = await db
+              .select({ id: messages.id })
+              .from(messages)
+              .where(eq(messages.conversationId, conversationId));
+            const assistantCount = allMsgs.length; // approximate; close enough for mod check
+            if (assistantCount % 5 === 0) {
+              // Non-blocking — don't await, don't let errors bubble up
+              generateDecisionSummary(decisionId).catch((err) =>
+                console.error('[/api/chat] generateDecisionSummary error:', err),
+              );
+            }
+          } catch {
+            // Never block streaming on summary errors
+          }
         }
       },
     });
