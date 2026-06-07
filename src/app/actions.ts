@@ -203,11 +203,49 @@ export async function adoptCandidateAction(formData: FormData) {
       .set({ state: 'decided', updatedAt: new Date() })
       .where(eq(decisions.id, decisionId));
 
+    // 7. Advance project growthStage based on number of decided decisions
+    if (decision.projectId) {
+      const projectDecisions = await tx
+        .select({ state: decisions.state })
+        .from(decisions)
+        .where(eq(decisions.projectId, decision.projectId));
+
+      // Count currently decided (including the one we just set)
+      const decidedCount =
+        projectDecisions.filter((d) => d.state === 'decided').length + 1;
+
+      const stages = ['seed', 'seedling', 'growing', 'thriving', 'mature'];
+      // Advance stage thresholds: 1 → seedling, 3 → growing, 6 → thriving, 10 → mature
+      let newStage = 'seed';
+      if (decidedCount >= 10) newStage = 'mature';
+      else if (decidedCount >= 6) newStage = 'thriving';
+      else if (decidedCount >= 3) newStage = 'growing';
+      else if (decidedCount >= 1) newStage = 'seedling';
+
+      // Only advance (never go backwards)
+      const [currentProject] = await tx
+        .select({ growthStage: projects.growthStage })
+        .from(projects)
+        .where(eq(projects.id, decision.projectId));
+
+      const currentIdx = stages.indexOf(currentProject?.growthStage ?? 'seed');
+      const newIdx = stages.indexOf(newStage);
+      if (newIdx > currentIdx) {
+        await tx
+          .update(projects)
+          .set({ growthStage: newStage, updatedAt: new Date() })
+          .where(eq(projects.id, decision.projectId));
+      }
+    }
+
     return { snapshotId: newSnapshotId };
   });
 
   revalidatePath(`/decisions/${decisionId}`);
   revalidatePath(`/decisions/${decisionId}/compare`);
+  // Project growthStage may have changed — revalidate project page too
+  revalidatePath('/projects');
+  revalidatePath('/map');
 
   return result;
 }

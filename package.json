@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "npx tsx src/db/bootstrap.ts"
+    "db:seed": "npx tsx src/db/bootstrap.ts",
+    "db:demo-seed": "npx tsx src/db/demo-seed.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.12",
