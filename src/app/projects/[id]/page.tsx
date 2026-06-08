@@ -7,6 +7,7 @@ import { NewDecisionForm } from './new-decision-form';
 import { ProjectSummary } from '@/components/ProjectSummary';
 import { UnresolvedQuestions } from '@/components/UnresolvedQuestions';
 import { AdoptionHistory } from '@/components/AdoptionHistory';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata = {
   title: 'Project Details',
@@ -73,6 +74,7 @@ export default async function ProjectDetailPage({
   ).length;
 
   return (
+    <ErrorBoundary>
     <div className="flex flex-1 flex-col p-8 max-w-5xl mx-auto w-full space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -151,5 +153,6 @@ export default async function ProjectDetailPage({
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

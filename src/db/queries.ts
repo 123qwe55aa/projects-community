@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { getDatabase, type DB } from './index';
 import * as s from './schema';
 import {
@@ -153,4 +153,94 @@ export async function getDecisionTimeline(decisionId: string): Promise<DecisionT
   );
 
   return { decision, conversations };
+}
+
+// ──────────────────────────────────────────────────
+// getMapData
+// Projects + adoption counts + decision markers for the community map
+// ──────────────────────────────────────────────────
+
+export type MapProjectData = {
+  id: string;
+  summary: string | null;
+  background: string | null;
+  buildingStyle: string | null;
+  growthStage: string | null;
+  decisionCount: number;
+  adoptionCount: number; // drives dynamic building scale
+};
+
+export type MapDecisionMarker = {
+  decisionId: string;
+  projectId: string | null;
+  question: string;
+  adoptedAt: Date | null;
+};
+
+export async function getMapData(): Promise<{
+  projects: MapProjectData[];
+  decisionMarkers: MapDecisionMarker[];
+}> {
+  const database = db();
+
+  // All projects
+  const allProjects = await database.select().from(s.projects).orderBy(s.projects.createdAt);
+
+  // Decision counts per project (via decision_links)
+  const decisionCountRows = await database
+    .select({
+      projectId: s.decisionLinks.projectId,
+      cnt: count(),
+    })
+    .from(s.decisionLinks)
+    .groupBy(s.decisionLinks.projectId);
+
+  const decisionCountMap = new Map(decisionCountRows.map((r) => [r.projectId, r.cnt]));
+
+  // Adoption snapshot counts per project
+  const adoptionCountRows = await database
+    .select({
+      projectId: s.adoptionSnapshots.projectId,
+      cnt: count(),
+    })
+    .from(s.adoptionSnapshots)
+    .groupBy(s.adoptionSnapshots.projectId);
+
+  const adoptionCountMap = new Map(
+    adoptionCountRows
+      .filter((r) => r.projectId !== null)
+      .map((r) => [r.projectId as string, r.cnt])
+  );
+
+  const projects: MapProjectData[] = allProjects.map((p) => ({
+    id: p.id,
+    summary: p.summary,
+    background: p.background,
+    buildingStyle: p.buildingStyle,
+    growthStage: p.growthStage,
+    decisionCount: decisionCountMap.get(p.id) ?? 0,
+    adoptionCount: adoptionCountMap.get(p.id) ?? 0,
+  }));
+
+  // Decision markers: decisions that have at least one adoption snapshot
+  const adoptedDecisionRows = await database
+    .select({
+      decisionId: s.adoptionSnapshots.decisionId,
+      projectId: s.adoptionSnapshots.projectId,
+      adoptedAt: s.adoptionSnapshots.adoptedAt,
+      question: s.decisions.question,
+    })
+    .from(s.adoptionSnapshots)
+    .innerJoin(s.decisions, eq(s.adoptionSnapshots.decisionId, s.decisions.id))
+    .where(eq(s.adoptionSnapshots.isCurrent, true))
+    .orderBy(desc(s.adoptionSnapshots.adoptedAt));
+
+  const decisionMarkers: MapDecisionMarker[] = adoptedDecisionRows.map((r) => ({
+    decisionId: r.decisionId,
+    projectId: r.projectId,
+    question: r.question,
+    adoptedAt: r.adoptedAt,
+  }));
+
+  return { projects, decisionMarkers };
 }

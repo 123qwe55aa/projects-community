@@ -5,6 +5,7 @@ import { decisions, projects, decisionLinks } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { NewDecisionForm } from './new-decision-form';
 import { StateFilterTabs } from './state-filter-tabs';
+import { DecisionsListSkeleton } from '@/components/Skeletons';
 
 export const metadata = {
   title: 'Decisions',
@@ -30,86 +31,74 @@ async function DecisionsList({ filter }: { filter: string | null }) {
     ? await db.select().from(decisions).where(eq(decisions.state, filter)).orderBy(desc(decisions.createdAt))
     : await db.select().from(decisions).orderBy(desc(decisions.createdAt));
 
-  // Fetch all projects for linking and for the new-decision form
   const allProjects = await db.select().from(projects).orderBy(projects.createdAt);
-
-  // Build a project lookup map
   const projectMap = new Map(allProjects.map((p) => [p.id, p]));
 
-  // Get decision-project links
   const allLinks = await db.select().from(decisionLinks);
-  const linkMap = new Map<string, string>(); // decisionId -> projectId
+  const linkMap = new Map<string, string>();
   for (const link of allLinks) {
     if (link.projectId) {
       linkMap.set(link.decisionId, link.projectId);
     }
   }
 
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Decisions</h1>
-          <p className="text-sm text-zinc-500 mt-1">Track and compare your choices</p>
-        </div>
-        <NewDecisionForm projects={allProjects} />
-      </div>
-
-      <Suspense fallback={<div className="h-9 rounded-lg bg-zinc-900" />}>
-        <StateFilterTabs />
-      </Suspense>
-
-      {allDecisions.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center py-16">
-          <div className="text-center space-y-3">
-            <p className="text-zinc-500">No decisions yet</p>
-            <p className="text-sm text-zinc-600">
-              {filter ? `No ${filter} decisions found` : 'Create your first decision to get started'}
+  if (allDecisions.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center py-24">
+        <div className="text-center space-y-5 max-w-sm">
+          <div className="text-6xl">🤔</div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-white">
+              {filter ? `No ${filter} decisions` : 'No decisions yet'}
+            </h2>
+            <p className="text-zinc-500 text-sm">
+              {filter
+                ? `Try a different filter, or create a new decision.`
+                : 'Track your choices here. Add candidates, compare options, and adopt the best one.'}
             </p>
           </div>
+          <NewDecisionForm projects={allProjects} />
         </div>
-      ) : (
-        <div className="space-y-2">
-          {allDecisions.map((decision) => {
-            const badge = stateBadge[decision.state] || stateBadge.researching;
-            const scope = scopeBadge[decision.scope] || scopeBadge.independent;
-            const linkedProjectId = decision.projectId || linkMap.get(decision.id);
-            const linkedProject = linkedProjectId ? projectMap.get(linkedProjectId) : null;
+      </div>
+    );
+  }
 
-            return (
-              <Link
-                key={decision.id}
-                href={`/decisions/${decision.id}`}
-                className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-600 transition-colors"
-              >
-                <div className="flex-1 min-w-0 space-y-1">
-                  <span className="text-sm text-zinc-200 group-hover:text-white line-clamp-2">
-                    {decision.question}
-                  </span>
-                  {linkedProject && (
-                    <span className="block text-xs text-zinc-500">
-                      Project: {linkedProject.summary || linkedProject.background?.slice(0, 40) || linkedProject.id}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0 ml-3">
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-xs ${scope.classes}`}
-                  >
-                    {scope.label}
-                  </span>
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-xs ${badge.classes}`}
-                  >
-                    {badge.label}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </>
+  return (
+    <div className="space-y-2">
+      {allDecisions.map((decision) => {
+        const badge = stateBadge[decision.state] || stateBadge.researching;
+        const scope = scopeBadge[decision.scope] || scopeBadge.independent;
+        const linkedProjectId = decision.projectId || linkMap.get(decision.id);
+        const linkedProject = linkedProjectId ? projectMap.get(linkedProjectId) : null;
+
+        return (
+          <Link
+            key={decision.id}
+            href={`/decisions/${decision.id}`}
+            className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-zinc-600 transition-colors"
+          >
+            <div className="flex-1 min-w-0 space-y-1">
+              <span className="text-sm text-zinc-200 group-hover:text-white line-clamp-2">
+                {decision.question}
+              </span>
+              {linkedProject && (
+                <span className="block text-xs text-zinc-500">
+                  Project: {linkedProject.summary || linkedProject.background?.slice(0, 40) || linkedProject.id}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0 ml-3">
+              <span className={`rounded-full border px-2 py-0.5 text-xs ${scope.classes}`}>
+                {scope.label}
+              </span>
+              <span className={`rounded-full border px-2 py-0.5 text-xs ${badge.classes}`}>
+                {badge.label}
+              </span>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
@@ -120,9 +109,28 @@ export default async function DecisionsPage({
 }) {
   const { state } = await searchParams;
 
+  // Fetch projects for the header form (outside Suspense so it's always available)
+  const { db } = getDatabase();
+  const allProjects = await db.select().from(projects).orderBy(projects.createdAt);
+
   return (
     <div className="flex flex-1 flex-col p-8 max-w-4xl mx-auto w-full space-y-6">
-      <Suspense fallback={<div className="text-zinc-500">Loading...</div>}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Decisions</h1>
+          <p className="text-sm text-zinc-500 mt-1">Track and compare your choices</p>
+        </div>
+        <NewDecisionForm projects={allProjects} />
+      </div>
+
+      <Suspense fallback={<div className="h-9 rounded-lg bg-zinc-900 animate-pulse" />}>
+        <StateFilterTabs />
+      </Suspense>
+
+      <Suspense
+        fallback={<DecisionsListSkeleton />}
+        key={state ?? 'all'}
+      >
         <DecisionsList filter={state || null} />
       </Suspense>
     </div>

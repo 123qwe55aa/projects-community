@@ -9,6 +9,7 @@ import { ChangeStateForm } from './change-state-form';
 import { AdoptButton } from './adopt-button';
 import { PinnedMessages } from '@/components/PinnedMessages';
 import { RecommendationCard } from '@/components/RecommendationCard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata = {
   title: 'Decision Details',
@@ -84,6 +85,7 @@ export default async function DecisionDetailPage({
   const scope = scopeBadge[decision.scope] || scopeBadge.independent;
 
   return (
+    <ErrorBoundary>
     <div className="flex flex-1 flex-col p-8 max-w-5xl mx-auto w-full space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-zinc-500">
@@ -262,5 +264,6 @@ export default async function DecisionDetailPage({
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }
