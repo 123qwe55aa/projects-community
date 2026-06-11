@@ -6,11 +6,16 @@ import { resolve } from 'path';
 config({ path: resolve(process.cwd(), '.env.local') });
 
 import { getDatabase } from './index';
+import { initDatabase } from './migrate';
 import { seedDatabase } from './seed';
 
 async function main() {
+  console.log('Running migrations...');
+  const { sqlite: migrationSqlite } = initDatabase();
+  migrationSqlite.close();
+
   console.log('Connecting to database...');
-  const { db, sqlite } = getDatabase();
+  const { sqlite } = getDatabase();
   if (!sqlite) throw new Error('Database connection failed');
 
   console.log('Running seed...');
