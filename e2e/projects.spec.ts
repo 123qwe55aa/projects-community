@@ -14,11 +14,8 @@ test.describe('Projects Page', () => {
     await page.getByRole('button', { name: /new project/i }).click();
 
     // Fill the form in the dialog
-    const titleInput = page.locator('input[name="title"], input[placeholder*="title" i]');
-    await titleInput.fill('E2E Test Project');
-    
     const descInput = page.locator('textarea[name="background"], textarea[placeholder*="background" i]');
-    await descInput.fill('A project created by E2E tests');
+    await descInput.fill('E2E Test Project');
 
     // Submit
     await page.getByRole('button', { name: /create/i }).click();

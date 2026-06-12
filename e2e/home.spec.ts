@@ -12,9 +12,9 @@ test.describe('Home / Landing Page', () => {
     // Cards are divs with h3 inside a grid container
     const cards = page.locator('.grid.grid-cols-1 > div');
     await expect(cards).toHaveCount(3);
-    await expect(page.getByText('Projects', { exact: true })).toBeVisible();
-    await expect(page.getByText('Decisions', { exact: true })).toBeVisible();
-    await expect(page.getByText('Community Map', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Decisions', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Community Map', exact: true })).toBeVisible();
   });
 
   test('View Projects link navigates to /projects', async ({ page }) => {
