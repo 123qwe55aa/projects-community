@@ -100,7 +100,15 @@ export default async function ProjectDetailPage({
             </span>
           </div>
         </div>
-        <NewDecisionForm projectId={project.id} />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Link
+            href={`/projects/${project.id}/dashboard`}
+            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition"
+          >
+            📊 Dashboard
+          </Link>
+          <NewDecisionForm projectId={project.id} />
+        </div>
       </div>
 
       {/* Two-column layout */}
