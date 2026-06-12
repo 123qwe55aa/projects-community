@@ -10,6 +10,7 @@ import { AdoptButton } from './adopt-button';
 import { PinnedMessages } from '@/components/PinnedMessages';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { DeleteEntityButton } from '@/components/DeleteEntityButton';
 
 export const metadata = {
   title: 'Decision Details',
@@ -136,6 +137,11 @@ export default async function DecisionDetailPage({
               <span className="text-xs text-zinc-500">State:</span>
               <ChangeStateForm decisionId={decision.id} currentState={decision.state} />
             </div>
+            <DeleteEntityButton
+              entityId={decision.id}
+              entityName={decision.question}
+              entityType="decision"
+            />
           </div>
         </div>
 
