@@ -8,6 +8,7 @@ import { ProjectSummary } from '@/components/ProjectSummary';
 import { UnresolvedQuestions } from '@/components/UnresolvedQuestions';
 import { AdoptionHistory } from '@/components/AdoptionHistory';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { DeleteEntityButton } from '@/components/DeleteEntityButton';
 
 export const metadata = {
   title: 'Project Details',
@@ -100,7 +101,14 @@ export default async function ProjectDetailPage({
             </span>
           </div>
         </div>
-        <NewDecisionForm projectId={project.id} />
+        <div className="flex items-center gap-2">
+          <NewDecisionForm projectId={project.id} />
+          <DeleteEntityButton
+            entityId={project.id}
+            entityName={project.summary || project.background || 'Untitled Project'}
+            entityType="project"
+          />
+        </div>
       </div>
 
       {/* Two-column layout */}
