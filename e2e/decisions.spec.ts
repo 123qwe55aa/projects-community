@@ -66,4 +66,26 @@ test.describe('Decisions Page', () => {
       await expect(stateSelect).toBeVisible();
     }
   });
+
+  test('can delete a decision', async ({ page }) => {
+    const question = `Delete Decision ${Date.now()}`;
+
+    await page.goto('/decisions');
+    await page.getByRole('button', { name: /new decision/i }).click();
+    await page.locator('input[name="question"]').fill(question);
+    await page.getByRole('button', { name: /create decision/i }).click();
+    await page.getByRole('link', { name: new RegExp(question) }).click();
+
+    await page.getByRole('button', { name: '+ Add Candidate', exact: true }).click();
+    await page.locator('input[name="name"]').fill('Candidate to delete');
+    await page.getByRole('button', { name: 'Add Candidate', exact: true }).click();
+    await expect(page.getByText('Candidate to delete')).toBeVisible();
+
+    await page.getByRole('button', { name: /delete decision/i }).click();
+    await expect(page.getByRole('dialog')).toContainText(question);
+    await page.getByRole('button', { name: /delete decision/i }).last().click();
+
+    await page.waitForURL('/decisions');
+    await expect(page.getByText(question)).toHaveCount(0);
+  });
 });

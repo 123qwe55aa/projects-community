@@ -37,4 +37,32 @@ test.describe('Projects Page', () => {
     // Detail page should show project info and decision sections
     await expect(page.locator('h1')).toBeVisible();
   });
+
+  test('can delete a project while preserving its decisions', async ({ page }) => {
+    const projectName = `Delete Project ${Date.now()}`;
+    const decisionQuestion = `Preserved Decision ${Date.now()}`;
+
+    await page.goto('/projects');
+    await page.getByRole('button', { name: /new project/i }).click();
+    await page.locator('textarea[name="background"]').fill(projectName);
+    await page.getByRole('button', { name: /create project/i }).click();
+    await page.getByRole('link', { name: new RegExp(projectName) }).click();
+
+    await page.getByRole('button', { name: /new decision/i }).click();
+    await page.locator('input[name="question"]').fill(decisionQuestion);
+    await page.getByRole('button', { name: /create decision/i }).click();
+    await expect(page.getByRole('link', { name: new RegExp(decisionQuestion) }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: /delete project/i }).click();
+    await expect(page.getByRole('dialog')).toContainText(projectName);
+    await page.getByRole('button', { name: /delete project/i }).last().click();
+
+    await page.waitForURL('/projects');
+    await expect(page.getByText(projectName)).toHaveCount(0);
+
+    await page.goto('/decisions');
+    const preservedDecision = page.getByRole('link', { name: new RegExp(decisionQuestion) });
+    await expect(preservedDecision).toBeVisible();
+    await expect(preservedDecision).toContainText('Independent');
+  });
 });
