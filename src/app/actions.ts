@@ -2,8 +2,20 @@
 
 import { nanoid } from 'nanoid';
 import { getDatabase } from '@/db';
-import { eq, and } from 'drizzle-orm';
-import { projects, decisions, decisionLinks, conversations, candidates, adoptionSnapshots } from '@/db/schema';
+import { eq, and, inArray, or } from 'drizzle-orm';
+import {
+  projects,
+  decisions,
+  decisionLinks,
+  conversations,
+  candidates,
+  adoptionSnapshots,
+  messages,
+  pins,
+  researchJobs,
+  participants,
+  recommendations,
+} from '@/db/schema';
 import { revalidatePath } from 'next/cache';
 
 export async function createProjectAction(formData: FormData) {
@@ -270,4 +282,161 @@ export async function addCandidateAction(formData: FormData) {
   });
 
   revalidatePath(`/decisions/${decisionId}`);
+}
+
+export async function deleteProjectAction(projectId: string) {
+  if (!projectId?.trim()) {
+    throw new Error('Project ID is required');
+  }
+
+  const { db } = getDatabase();
+
+  db.transaction((tx) => {
+    const [project] = tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .all();
+
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const projectConversations = tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.contextType, 'project'),
+          eq(conversations.contextId, projectId),
+        ),
+      )
+      .all();
+    const conversationIds = projectConversations.map((conversation) => conversation.id);
+
+    if (conversationIds.length > 0) {
+      const conversationMessages = tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(inArray(messages.conversationId, conversationIds))
+        .all();
+      const messageIds = conversationMessages.map((message) => message.id);
+
+      if (messageIds.length > 0) {
+        tx.delete(pins).where(inArray(pins.messageId, messageIds)).run();
+      }
+      tx.delete(researchJobs).where(inArray(researchJobs.conversationId, conversationIds)).run();
+      tx.delete(messages).where(inArray(messages.conversationId, conversationIds)).run();
+      tx.delete(conversations).where(inArray(conversations.id, conversationIds)).run();
+    }
+
+    tx
+      .update(decisions)
+      .set({ projectId: null, scope: 'independent', updatedAt: new Date() })
+      .where(eq(decisions.projectId, projectId))
+      .run();
+    tx.delete(decisionLinks).where(eq(decisionLinks.projectId, projectId)).run();
+    tx
+      .update(adoptionSnapshots)
+      .set({ projectId: null })
+      .where(eq(adoptionSnapshots.projectId, projectId))
+      .run();
+    tx.delete(participants).where(eq(participants.projectId, projectId)).run();
+    tx.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+
+  revalidatePath('/projects');
+  revalidatePath('/decisions');
+  revalidatePath('/map');
+
+  return { redirectTo: '/projects' };
+}
+
+export async function deleteDecisionAction(decisionId: string) {
+  if (!decisionId?.trim()) {
+    throw new Error('Decision ID is required');
+  }
+
+  const { db } = getDatabase();
+  let redirectTo = '/decisions';
+
+  db.transaction((tx) => {
+    const [decision] = tx
+      .select({ id: decisions.id, projectId: decisions.projectId })
+      .from(decisions)
+      .where(eq(decisions.id, decisionId))
+      .all();
+
+    if (!decision) {
+      throw new Error('Decision not found');
+    }
+
+    const [link] = tx
+      .select({ projectId: decisionLinks.projectId })
+      .from(decisionLinks)
+      .where(eq(decisionLinks.decisionId, decisionId))
+      .all();
+    const projectId = decision.projectId || link?.projectId;
+    if (projectId) {
+      redirectTo = `/projects/${projectId}`;
+    }
+
+    const decisionCandidates = tx
+      .select({ id: candidates.id })
+      .from(candidates)
+      .where(eq(candidates.decisionId, decisionId))
+      .all();
+    const candidateIds = decisionCandidates.map((candidate) => candidate.id);
+    const conversationCondition =
+      candidateIds.length > 0
+        ? or(
+            and(
+              eq(conversations.contextType, 'decision'),
+              eq(conversations.contextId, decisionId),
+            ),
+            and(
+              eq(conversations.contextType, 'candidate'),
+              inArray(conversations.contextId, candidateIds),
+            ),
+          )
+        : and(
+            eq(conversations.contextType, 'decision'),
+            eq(conversations.contextId, decisionId),
+          );
+    const decisionConversations = tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(conversationCondition)
+      .all();
+    const conversationIds = decisionConversations.map((conversation) => conversation.id);
+
+    if (conversationIds.length > 0) {
+      const conversationMessages = tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(inArray(messages.conversationId, conversationIds))
+        .all();
+      const messageIds = conversationMessages.map((message) => message.id);
+
+      if (messageIds.length > 0) {
+        tx.delete(pins).where(inArray(pins.messageId, messageIds)).run();
+      }
+      tx.delete(researchJobs).where(inArray(researchJobs.conversationId, conversationIds)).run();
+      tx.delete(messages).where(inArray(messages.conversationId, conversationIds)).run();
+      tx.delete(conversations).where(inArray(conversations.id, conversationIds)).run();
+    }
+
+    tx.delete(participants).where(eq(participants.decisionId, decisionId)).run();
+    tx.delete(recommendations).where(eq(recommendations.decisionId, decisionId)).run();
+    tx.delete(adoptionSnapshots).where(eq(adoptionSnapshots.decisionId, decisionId)).run();
+    tx.delete(decisionLinks).where(eq(decisionLinks.decisionId, decisionId)).run();
+    tx.delete(candidates).where(eq(candidates.decisionId, decisionId)).run();
+    tx.delete(decisions).where(eq(decisions.id, decisionId)).run();
+  });
+
+  revalidatePath('/projects');
+  revalidatePath('/decisions');
+  revalidatePath('/map');
+
+  return { redirectTo };
 }
