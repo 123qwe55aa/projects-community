@@ -15,6 +15,13 @@
       "when": 1781318056253,
       "tag": "0001_omniscient_lady_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781331070015,
+      "tag": "0002_empty_the_enforcers",
+      "breakpoints": true
     }
   ]
 }
