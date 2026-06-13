@@ -21,6 +21,45 @@ const validObservation = {
   observedAt,
 } as const;
 
+const eventBase = {
+  idempotencyKey: 'hermes:event-1',
+  projectId: 'project-1',
+  evidenceObservationIds: ['observation-1'],
+  rationale: 'The evidence supports this event.',
+  occurredAt: observedAt,
+} as const;
+
+const validEvents = [
+  { eventType: 'project_created', payload: { summary: 'Project created' } },
+  { eventType: 'observation_attached', payload: { observationId: 'observation-1' } },
+  { eventType: 'progress_recorded', payload: { summary: 'Progress recorded' } },
+  { eventType: 'direction_changed', payload: { summary: 'Direction changed' } },
+  { eventType: 'obstacle_identified', payload: { obstacle: 'Missing evidence' } },
+  { eventType: 'obstacle_resolved', payload: { obstacle: 'Missing evidence' } },
+  { eventType: 'interest_increased', payload: { theme: 'Hermes-first workflows' } },
+  { eventType: 'interest_decreased', payload: { theme: 'Manual project entry' } },
+  {
+    eventType: 'lifecycle_inferred',
+    payload: { state: 'active', rationale: 'Recent explicit progress' },
+  },
+  {
+    eventType: 'lifecycle_corrected',
+    payload: { state: 'dormant', rationale: 'The user paused the project' },
+  },
+  {
+    eventType: 'project_merged',
+    payload: { sourceProjectId: 'project-1', targetProjectId: 'project-2' },
+  },
+  { eventType: 'project_archived', payload: { rationale: 'The project ended' } },
+  { eventType: 'hypothesis_promoted', payload: { hypothesisId: 'hypothesis-1' } },
+  { eventType: 'legacy_imported', payload: { summary: 'Legacy project', background: 'Context' } },
+  { eventType: 'decision_suggested', payload: { question: 'Should this be prioritized?' } },
+  {
+    eventType: 'decision_confirmed',
+    payload: { decisionId: 'decision-1', question: 'Should this be prioritized?' },
+  },
+] as const;
+
 describe('V2 contracts', () => {
   it('defines observation and lifecycle-aware project event types', () => {
     expect(observationTypes).toContain('project_signal');
@@ -43,13 +82,80 @@ describe('V2 contracts', () => {
   it('rejects events without evidence observations', () => {
     expect(() =>
       recordProjectEventInput.parse({
-        idempotencyKey: 'hermes:event-1',
-        projectId: 'project-1',
+        ...eventBase,
         eventType: 'progress_recorded',
         payload: { summary: 'Progress' },
         evidenceObservationIds: [],
-        rationale: 'No evidence',
-        occurredAt: observedAt,
+      }),
+    ).toThrow();
+  });
+
+  it('accepts a strict projection-safe payload for every project event type', () => {
+    expect(validEvents.map(({ eventType }) => eventType)).toEqual(projectEventTypes);
+    expect(validEvents.map((event) => recordProjectEventInput.parse({ ...eventBase, ...event })))
+      .toHaveLength(projectEventTypes.length);
+  });
+
+  it('rejects mismatched, non-JSON, unbounded, and non-strict event payloads', () => {
+    for (const payload of [
+      { obstacle: 'Wrong shape' },
+      { summary: new Date() },
+      { summary: 'x'.repeat(1001) },
+      { summary: 'Progress', extra: 'not allowed' },
+    ]) {
+      expect(() =>
+        recordProjectEventInput.parse({
+          ...eventBase,
+          eventType: 'progress_recorded',
+          payload,
+        }),
+      ).toThrow();
+    }
+  });
+
+  it('rejects invalid lifecycle states', () => {
+    expect(() =>
+      recordProjectEventInput.parse({
+        ...eventBase,
+        eventType: 'lifecycle_inferred',
+        payload: { state: 'paused', rationale: 'Not a supported lifecycle state' },
+      }),
+    ).toThrow();
+  });
+
+  it('requires unique event and decision evidence arrays with at most 100 items', () => {
+    expect(() =>
+      recordProjectEventInput.parse({
+        ...eventBase,
+        eventType: 'progress_recorded',
+        payload: { summary: 'Progress' },
+        evidenceObservationIds: ['observation-1', 'observation-1'],
+      }),
+    ).toThrow();
+    expect(() =>
+      recordProjectEventInput.parse({
+        ...eventBase,
+        eventType: 'progress_recorded',
+        payload: { summary: 'Progress' },
+        evidenceObservationIds: Array.from({ length: 101 }, (_, index) => `observation-${index}`),
+      }),
+    ).toThrow();
+    expect(() =>
+      suggestDecisionInput.parse({
+        idempotencyKey: 'hermes:decision-1',
+        projectId: 'project-1',
+        question: 'Should the dashboard prioritize recent changes?',
+        evidenceObservationIds: ['observation-1', 'observation-1'],
+        rationale: 'The observation identifies a consequential product choice.',
+      }),
+    ).toThrow();
+    expect(() =>
+      suggestDecisionInput.parse({
+        idempotencyKey: 'hermes:decision-1',
+        projectId: 'project-1',
+        question: 'Should the dashboard prioritize recent changes?',
+        evidenceObservationIds: Array.from({ length: 101 }, (_, index) => `observation-${index}`),
+        rationale: 'The observation identifies a consequential product choice.',
       }),
     ).toThrow();
   });
@@ -108,6 +214,7 @@ describe('V2 contracts', () => {
 
     expect(
       upsertProjectHypothesisInput.parse({
+        idempotencyKey: 'hermes:hypothesis-upsert-1',
         stableKey: 'hermes:hypothesis-1',
         title: 'Hermes-first project observatory',
         explanation: 'Several observations describe the same emerging project.',
@@ -124,5 +231,55 @@ describe('V2 contracts', () => {
         rationale: 'The observation identifies a consequential product choice.',
       }).question,
     ).toContain('dashboard');
+  });
+
+  it('requires hypothesis idempotency and accepts signal-only evidence', () => {
+    expect(() =>
+      upsertProjectHypothesisInput.parse({
+        stableKey: 'hermes:hypothesis-1',
+        title: 'Hermes-first project observatory',
+        explanation: 'Several signals describe the same emerging project.',
+        signalIds: ['signal-1'],
+      }),
+    ).toThrow();
+
+    expect(
+      upsertProjectHypothesisInput.parse({
+        idempotencyKey: 'hermes:hypothesis-upsert-1',
+        stableKey: 'hermes:hypothesis-1',
+        title: 'Hermes-first project observatory',
+        explanation: 'Several signals describe the same emerging project.',
+        signalIds: ['signal-1'],
+      }).signalIds,
+    ).toEqual(['signal-1']);
+  });
+
+  it('requires total hypothesis evidence and rejects duplicate, excessive, and unbounded IDs', () => {
+    const hypothesisBase = {
+      idempotencyKey: 'hermes:hypothesis-upsert-1',
+      stableKey: 'hermes:hypothesis-1',
+      title: 'Hermes-first project observatory',
+      explanation: 'Several signals describe the same emerging project.',
+    };
+
+    expect(() => upsertProjectHypothesisInput.parse(hypothesisBase)).toThrow();
+    expect(() =>
+      upsertProjectHypothesisInput.parse({
+        ...hypothesisBase,
+        observationIds: ['observation-1', 'observation-1'],
+      }),
+    ).toThrow();
+    expect(() =>
+      upsertProjectHypothesisInput.parse({
+        ...hypothesisBase,
+        signalIds: Array.from({ length: 101 }, (_, index) => `signal-${index}`),
+      }),
+    ).toThrow();
+    expect(() =>
+      upsertProjectHypothesisInput.parse({
+        ...hypothesisBase,
+        signalIds: ['x'.repeat(201)],
+      }),
+    ).toThrow();
   });
 });

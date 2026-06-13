@@ -35,11 +35,42 @@ export const projectEventTypes = [
 const boundedId = z.string().min(1).max(200);
 const boundedReference = z.string().min(1).max(500);
 const boundedRationale = z.string().min(1).max(1000);
+const boundedSummary = z.string().min(1).max(1000);
+const boundedBackground = z.string().min(1).max(2000);
 const isoDatetime = z.string().datetime();
+const lifecycleState = z.enum(['active', 'dormant', 'ended', 'archived']);
+
+const uniqueIds = (minimum: number) =>
+  z
+    .array(boundedId)
+    .min(minimum)
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, 'Evidence IDs must be unique');
+const boundedUniqueIds = uniqueIds(0);
+const requiredBoundedUniqueIds = uniqueIds(1);
+
+const strictPayload = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+
+const eventBase = {
+  idempotencyKey: boundedId,
+  projectId: boundedId,
+  evidenceObservationIds: requiredBoundedUniqueIds,
+  rationale: boundedRationale,
+  occurredAt: isoDatetime,
+};
+
+const eventInput = <T extends string, P extends z.ZodTypeAny>(eventType: T, payload: P) =>
+  z
+    .object({
+      ...eventBase,
+      eventType: z.literal(eventType),
+      payload,
+    })
+    .strict();
 
 const observationBase = {
   idempotencyKey: boundedId,
-  summary: z.string().min(1).max(1000),
+  summary: boundedSummary,
   type: z.enum(observationTypes),
   sourceConversationRef: boundedReference,
   sourceMessageRef: boundedReference,
@@ -66,17 +97,39 @@ export const recordObservationInput = z.union([
     .strict(),
 ]);
 
-export const recordProjectEventInput = z
-  .object({
-    idempotencyKey: boundedId,
-    projectId: boundedId,
-    eventType: z.enum(projectEventTypes),
-    payload: z.record(z.unknown()),
-    evidenceObservationIds: z.array(boundedId).min(1),
-    rationale: boundedRationale,
-    occurredAt: isoDatetime,
-  })
-  .strict();
+export const recordProjectEventInput = z.discriminatedUnion('eventType', [
+  eventInput('project_created', strictPayload({ summary: boundedSummary })),
+  eventInput('observation_attached', strictPayload({ observationId: boundedId })),
+  eventInput('progress_recorded', strictPayload({ summary: boundedSummary })),
+  eventInput('direction_changed', strictPayload({ summary: boundedSummary })),
+  eventInput('obstacle_identified', strictPayload({ obstacle: boundedSummary })),
+  eventInput('obstacle_resolved', strictPayload({ obstacle: boundedSummary })),
+  eventInput('interest_increased', strictPayload({ theme: boundedSummary })),
+  eventInput('interest_decreased', strictPayload({ theme: boundedSummary })),
+  eventInput(
+    'lifecycle_inferred',
+    strictPayload({ state: lifecycleState, rationale: boundedRationale }),
+  ),
+  eventInput(
+    'lifecycle_corrected',
+    strictPayload({ state: lifecycleState, rationale: boundedRationale }),
+  ),
+  eventInput(
+    'project_merged',
+    strictPayload({ sourceProjectId: boundedId, targetProjectId: boundedId }),
+  ),
+  eventInput('project_archived', strictPayload({ rationale: boundedRationale })),
+  eventInput('hypothesis_promoted', strictPayload({ hypothesisId: boundedId })),
+  eventInput(
+    'legacy_imported',
+    strictPayload({ summary: boundedSummary, background: boundedBackground.optional() }),
+  ),
+  eventInput('decision_suggested', strictPayload({ question: boundedSummary })),
+  eventInput(
+    'decision_confirmed',
+    strictPayload({ decisionId: boundedId, question: boundedSummary }),
+  ),
+]);
 
 export const attachObservationToProjectInput = z
   .object({
@@ -90,19 +143,25 @@ export const attachObservationToProjectInput = z
 
 export const upsertProjectHypothesisInput = z
   .object({
+    idempotencyKey: boundedId,
     stableKey: boundedId,
     title: z.string().min(1).max(200),
-    explanation: z.string().min(1).max(2000),
-    observationIds: z.array(boundedId).min(1),
+    explanation: boundedBackground,
+    observationIds: boundedUniqueIds.optional(),
+    signalIds: boundedUniqueIds.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ observationIds, signalIds }) => (observationIds?.length ?? 0) + (signalIds?.length ?? 0) > 0,
+    'At least one observation or signal evidence ID is required',
+  );
 
 export const suggestDecisionInput = z
   .object({
     idempotencyKey: boundedId,
     projectId: boundedId,
-    question: z.string().min(1).max(1000),
-    evidenceObservationIds: z.array(boundedId).min(1),
+    question: boundedSummary,
+    evidenceObservationIds: requiredBoundedUniqueIds,
     rationale: boundedRationale,
   })
   .strict();
