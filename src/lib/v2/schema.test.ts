@@ -316,6 +316,71 @@ describe('V2 schema', () => {
     ).not.toThrow();
   });
 
+  it('rejects ID updates of mutable targets referenced by corrections', () => {
+    const { db } = createV2TestDatabase();
+    const now = new Date();
+    db.insert(projects).values({ id: 'corrected-project', summary: 'Corrected' }).run();
+    db.insert(projects).values({ id: 'unreferenced-project', summary: 'Unreferenced' }).run();
+    db.insert(projectHypotheses)
+      .values({
+        id: 'corrected-hypothesis',
+        stableKey: 'corrected-hypothesis',
+        title: 'Corrected',
+        explanation: 'Corrected',
+        state: 'active',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run();
+    db.insert(projectHypotheses)
+      .values({
+        id: 'unreferenced-hypothesis',
+        stableKey: 'unreferenced-hypothesis',
+        title: 'Unreferenced',
+        explanation: 'Unreferenced',
+        state: 'active',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run();
+    insertCorrection(db, 'project-correction', 'project', 'corrected-project');
+    insertCorrection(
+      db,
+      'hypothesis-correction',
+      'project_hypothesis',
+      'corrected-hypothesis',
+    );
+
+    expect(() =>
+      db
+        .update(projects)
+        .set({ id: 'renamed-corrected-project' })
+        .where(eq(projects.id, 'corrected-project'))
+        .run(),
+    ).toThrow('project ID is referenced by an immutable correction');
+    expect(() =>
+      db
+        .update(projectHypotheses)
+        .set({ id: 'renamed-corrected-hypothesis' })
+        .where(eq(projectHypotheses.id, 'corrected-hypothesis'))
+        .run(),
+    ).toThrow('project_hypothesis ID is referenced by an immutable correction');
+    expect(() =>
+      db
+        .update(projects)
+        .set({ id: 'renamed-unreferenced-project' })
+        .where(eq(projects.id, 'unreferenced-project'))
+        .run(),
+    ).not.toThrow();
+    expect(() =>
+      db
+        .update(projectHypotheses)
+        .set({ id: 'renamed-unreferenced-hypothesis' })
+        .where(eq(projectHypotheses.id, 'unreferenced-hypothesis'))
+        .run(),
+    ).not.toThrow();
+  });
+
   it.each([
     { targetType: 'unknown', targetId: 'missing' },
     { targetType: 'project', targetId: 'missing' },
