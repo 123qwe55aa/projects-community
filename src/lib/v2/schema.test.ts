@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   corrections,
   eventEvidence,
@@ -257,6 +263,96 @@ describe('V2 schema', () => {
       );
     }
   });
+
+  it('rejects deletion of mutable targets referenced by corrections', () => {
+    const { db } = createV2TestDatabase();
+    const now = new Date();
+    db.insert(projects).values({ id: 'corrected-project', summary: 'Corrected' }).run();
+    db.insert(projects).values({ id: 'unreferenced-project', summary: 'Unreferenced' }).run();
+    db.insert(projectHypotheses)
+      .values({
+        id: 'corrected-hypothesis',
+        stableKey: 'corrected-hypothesis',
+        title: 'Corrected',
+        explanation: 'Corrected',
+        state: 'active',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run();
+    db.insert(projectHypotheses)
+      .values({
+        id: 'unreferenced-hypothesis',
+        stableKey: 'unreferenced-hypothesis',
+        title: 'Unreferenced',
+        explanation: 'Unreferenced',
+        state: 'active',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run();
+    insertCorrection(db, 'project-correction', 'project', 'corrected-project');
+    insertCorrection(
+      db,
+      'hypothesis-correction',
+      'project_hypothesis',
+      'corrected-hypothesis',
+    );
+
+    expect(() =>
+      db.delete(projects).where(eq(projects.id, 'corrected-project')).run(),
+    ).toThrow('project is referenced by an immutable correction');
+    expect(() =>
+      db.delete(projectHypotheses).where(eq(projectHypotheses.id, 'corrected-hypothesis')).run(),
+    ).toThrow('project_hypothesis is referenced by an immutable correction');
+    expect(() =>
+      db.delete(projects).where(eq(projects.id, 'unreferenced-project')).run(),
+    ).not.toThrow();
+    expect(() =>
+      db
+        .delete(projectHypotheses)
+        .where(eq(projectHypotheses.id, 'unreferenced-hypothesis'))
+        .run(),
+    ).not.toThrow();
+  });
+
+  it.each([
+    { targetType: 'unknown', targetId: 'missing' },
+    { targetType: 'project', targetId: 'missing' },
+  ])('refuses to migrate a database containing invalid legacy corrections', ({ targetType, targetId }) => {
+    const directory = mkdtempSync(join(tmpdir(), 'projects-community-migration-'));
+    const oldMigrations = join(directory, 'old-migrations');
+    const databasePath = join(directory, 'test.db');
+    const sqlite = new Database(databasePath);
+
+    try {
+      copyMigrationsThrough(oldMigrations, 3);
+      migrate(drizzle(sqlite), { migrationsFolder: oldMigrations });
+      sqlite.exec('DROP TRIGGER corrections_validate_target');
+      sqlite
+        .prepare(
+          `INSERT INTO corrections
+            (id, target_type, target_id, correction_type, payload, actor, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run('legacy-invalid', targetType, targetId, 'clarification', '{}', 'legacy', Date.now());
+
+      let migrationError: unknown;
+      try {
+        migrate(drizzle(sqlite), { migrationsFolder: join(process.cwd(), 'drizzle') });
+      } catch (error) {
+        migrationError = error;
+      }
+
+      expect(migrationError).toBeInstanceOf(Error);
+      expect((migrationError as Error & { cause?: Error }).cause?.message).toContain(
+        'invalid pre-existing corrections',
+      );
+    } finally {
+      sqlite.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 function createV2TestDatabase() {
@@ -360,4 +456,19 @@ function insertCorrection(
       createdAt: new Date(),
     })
     .run();
+}
+
+function copyMigrationsThrough(destination: string, lastIndex: number) {
+  const source = join(process.cwd(), 'drizzle');
+  cpSync(join(source, 'meta'), join(destination, 'meta'), { recursive: true });
+  const journalPath = join(destination, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+    entries: Array<{ idx: number; tag: string }>;
+  };
+  journal.entries = journal.entries.filter((entry) => entry.idx <= lastIndex);
+  writeFileSync(journalPath, JSON.stringify(journal));
+
+  for (const entry of journal.entries) {
+    cpSync(join(source, `${entry.tag}.sql`), join(destination, `${entry.tag}.sql`));
+  }
 }
