@@ -376,3 +376,10 @@ export const projectionCheckpoints = sqliteTable('projection_checkpoints', {
   error: text('error'),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
+
+export const ingestionReceipts = sqliteTable('ingestion_receipts', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  toolName: text('tool_name').notNull(),
+  resultJson: text('result_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+});
