@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { getDatabase } from '@/db';
 import {
   corrections,
@@ -9,6 +9,7 @@ import {
   projectHypotheses,
   projectSnapshots,
   projects,
+  signalEvidence,
 } from '@/db/schema';
 
 export type LifecycleState = 'active' | 'dormant' | 'ended' | 'archived';
@@ -101,35 +102,53 @@ export async function getDashboardData(): Promise<{
 
 export async function getNeedsAttention(): Promise<AttentionItem[]> {
   const db = getDatabase().db;
-  const [observationRows, eventRows, evidenceRows, correctionRows, projectRows] =
-    await Promise.all([
-      db
-        .select()
-        .from(observations)
-        .orderBy(desc(observations.observedAt), desc(observations.recordedAt), desc(observations.id)),
-      db.select().from(projectEvents).where(eq(projectEvents.eventType, 'observation_attached')),
-      db.select().from(eventEvidence),
-      db.select().from(corrections).where(eq(corrections.targetType, 'observation')),
-      db.select().from(projects),
-    ]);
-  const attachmentEventIds = new Set(eventRows.map(({ id }) => id));
+  const [observationRows, attachedEvidenceRows, correctionRows] = await Promise.all([
+    db
+      .select()
+      .from(observations)
+      .orderBy(desc(observations.observedAt), desc(observations.recordedAt), desc(observations.id)),
+    db
+      .select({ observationId: eventEvidence.observationId })
+      .from(eventEvidence)
+      .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
+      .where(eq(projectEvents.eventType, 'observation_attached')),
+    db
+      .select()
+      .from(corrections)
+      .where(
+        and(
+          eq(corrections.targetType, 'observation'),
+          inArray(corrections.correctionType, [
+            'confirm',
+            'ignore',
+            'confirmed',
+            'ignored',
+            'observation_confirmed',
+            'observation_ignored',
+          ]),
+        ),
+      ),
+  ]);
   const attachedObservationIds = new Set(
-    evidenceRows
-      .filter(({ eventId }) => attachmentEventIds.has(eventId))
-      .map(({ observationId }) => observationId),
+    attachedEvidenceRows.map(({ observationId }) => observationId),
   );
   const reviewedObservationIds = new Set(
     correctionRows
       .filter(({ correctionType }) => isConfirmOrIgnore(correctionType))
       .map(({ targetId }) => targetId),
   );
+  const pendingObservationRows = observationRows.filter(
+    ({ id }) => !attachedObservationIds.has(id) && !reviewedObservationIds.has(id),
+  );
+  const proposedProjectIds = unique(
+    pendingObservationRows.flatMap(({ proposedProjectId }) => (proposedProjectId ? [proposedProjectId] : [])),
+  );
+  const projectRows = proposedProjectIds.length
+    ? await db.select().from(projects).where(inArray(projects.id, proposedProjectIds))
+    : [];
   const projectsById = new Map(projectRows.map((project) => [project.id, project]));
 
-  return observationRows
-    .filter(
-      ({ id }) => !attachedObservationIds.has(id) && !reviewedObservationIds.has(id),
-    )
-    .map((observation) => ({
+  return pendingObservationRows.map((observation) => ({
       observationId: observation.id,
       summary: observation.summary,
       type: observation.type,
@@ -155,10 +174,20 @@ export async function getRecentChanges(limit = 20): Promise<RecentChange[]> {
     .from(projectEvents)
     .orderBy(desc(projectEvents.occurredAt), desc(projectEvents.createdAt), desc(projectEvents.id))
     .limit(limit);
-  const [projectRows, evidenceRows, observationRows] = await Promise.all([
-    db.select().from(projects),
-    db.select().from(eventEvidence),
-    db.select().from(observations),
+  if (events.length === 0) return [];
+
+  const eventIds = events.map(({ id }) => id);
+  const projectIds = unique(events.map(({ projectId }) => projectId));
+  const evidenceRows = await db
+    .select()
+    .from(eventEvidence)
+    .where(inArray(eventEvidence.eventId, eventIds));
+  const observationIds = unique(evidenceRows.map(({ observationId }) => observationId));
+  const [projectRows, observationRows] = await Promise.all([
+    db.select().from(projects).where(inArray(projects.id, projectIds)),
+    observationIds.length
+      ? db.select().from(observations).where(inArray(observations.id, observationIds))
+      : Promise.resolve([]),
   ]);
   const projectsById = new Map(projectRows.map((project) => [project.id, project]));
   const evidenceByEvent = buildEventEvidence(evidenceRows, observationRows);
@@ -182,24 +211,49 @@ export async function getRecentChanges(limit = 20): Promise<RecentChange[]> {
 
 export async function getProjectHypotheses(): Promise<ProjectHypothesisCard[]> {
   const db = getDatabase().db;
-  const [hypotheses, evidenceRows, observationRows] = await Promise.all([
-    db
-      .select()
-      .from(projectHypotheses)
-      .where(eq(projectHypotheses.state, 'emerging'))
-      .orderBy(desc(projectHypotheses.lastSeenAt), desc(projectHypotheses.id)),
-    db.select().from(hypothesisEvidence),
-    db.select().from(observations),
+  const hypotheses = await db
+    .select()
+    .from(projectHypotheses)
+    .where(eq(projectHypotheses.state, 'emerging'))
+    .orderBy(desc(projectHypotheses.lastSeenAt), desc(projectHypotheses.id));
+  if (hypotheses.length === 0) return [];
+
+  const evidenceRows = await db
+    .select()
+    .from(hypothesisEvidence)
+    .where(inArray(hypothesisEvidence.hypothesisId, hypotheses.map(({ id }) => id)));
+  const signalIds = unique(evidenceRows.flatMap(({ signalId }) => (signalId ? [signalId] : [])));
+  const signalEvidenceRows = signalIds.length
+    ? await db.select().from(signalEvidence).where(inArray(signalEvidence.signalId, signalIds))
+    : [];
+  const observationIds = unique([
+    ...evidenceRows.flatMap(({ observationId }) => (observationId ? [observationId] : [])),
+    ...signalEvidenceRows.map(({ observationId }) => observationId),
   ]);
+  const observationRows = observationIds.length
+    ? await db.select().from(observations).where(inArray(observations.id, observationIds))
+    : [];
   const observationsById = new Map(observationRows.map((observation) => [observation.id, observation]));
+  const observationIdsBySignalId = new Map<string, string[]>();
+  for (const evidence of signalEvidenceRows) {
+    const ids = observationIdsBySignalId.get(evidence.signalId) ?? [];
+    ids.push(evidence.observationId);
+    observationIdsBySignalId.set(evidence.signalId, ids);
+  }
 
   return hypotheses.map((hypothesis) => {
     const supportingEvidence = evidenceRows.filter(
       ({ hypothesisId }) => hypothesisId === hypothesis.id,
     );
-    const latestQuotes = supportingEvidence
-      .flatMap(({ observationId }) => {
-        const observation = observationId ? observationsById.get(observationId) : undefined;
+    const supportingObservationIds = unique(
+      supportingEvidence.flatMap(({ observationId, signalId }) => [
+        ...(observationId ? [observationId] : []),
+        ...(signalId ? (observationIdsBySignalId.get(signalId) ?? []) : []),
+      ]),
+    );
+    const latestQuotes = supportingObservationIds
+      .flatMap((observationId) => {
+        const observation = observationsById.get(observationId);
         return observation ? [toEvidenceReference(observation)] : [];
       })
       .sort(compareEvidenceNewestFirst)
@@ -227,10 +281,14 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
     .orderBy(desc(projectEvents.occurredAt), desc(projectEvents.createdAt), desc(projectEvents.id));
   if (events.length === 0) return [];
 
-  const [evidenceRows, observationRows] = await Promise.all([
-    db.select().from(eventEvidence),
-    db.select().from(observations),
-  ]);
+  const evidenceRows = await db
+    .select()
+    .from(eventEvidence)
+    .where(inArray(eventEvidence.eventId, events.map(({ id }) => id)));
+  const observationIds = unique(evidenceRows.map(({ observationId }) => observationId));
+  const observationRows = observationIds.length
+    ? await db.select().from(observations).where(inArray(observations.id, observationIds))
+    : [];
   const evidenceByEvent = buildEventEvidence(evidenceRows, observationRows);
 
   return events.map((event) => ({
@@ -246,15 +304,23 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
 
 async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
   const db = getDatabase().db;
-  const [snapshotRows, evidenceRows, eventRows] = await Promise.all([
-    db
-      .select()
-      .from(projectSnapshots)
-      .where(eq(projectSnapshots.isCurrent, true))
-      .orderBy(desc(projectSnapshots.createdAt), asc(projectSnapshots.projectId)),
-    db.select().from(eventEvidence),
-    db.select().from(projectEvents),
-  ]);
+  const snapshotRows = await db
+    .select()
+    .from(projectSnapshots)
+    .where(eq(projectSnapshots.isCurrent, true))
+    .orderBy(desc(projectSnapshots.createdAt), asc(projectSnapshots.projectId));
+  if (snapshotRows.length === 0) return [];
+
+  const eventRows = await db
+    .select()
+    .from(projectEvents)
+    .where(inArray(projectEvents.projectId, snapshotRows.map(({ projectId }) => projectId)));
+  const evidenceRows = eventRows.length
+    ? await db
+        .select()
+        .from(eventEvidence)
+        .where(inArray(eventEvidence.eventId, eventRows.map(({ id }) => id)))
+    : [];
   const projectIdByEventId = new Map(eventRows.map((event) => [event.id, event.projectId]));
   const evidenceByProjectId = new Map<string, Set<string>>();
   for (const evidence of evidenceRows) {
@@ -317,23 +383,35 @@ function isConfirmOrIgnore(correctionType: string) {
 }
 
 function parseObject(value: string): Record<string, unknown> {
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parseJson(value);
   return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : {};
 }
 
 function parseStringArray(value: string): string[] {
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parseJson(value);
   return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function parseObjectArray(value: string): Array<Record<string, unknown>> {
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parseJson(value);
   return Array.isArray(parsed)
     ? parsed.filter(
         (item): item is Record<string, unknown> =>
           typeof item === 'object' && item !== null && !Array.isArray(item),
       )
     : [];
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function unique(values: string[]) {
+  return [...new Set(values)];
 }

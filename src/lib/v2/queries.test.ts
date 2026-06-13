@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import {
   corrections,
   eventEvidence,
@@ -8,6 +9,8 @@ import {
   projectHypotheses,
   projectSnapshots,
   projects,
+  signalEvidence,
+  signals,
 } from '@/db/schema';
 import { createTestDatabase } from '@/test/db';
 import {
@@ -93,6 +96,110 @@ describe('V2 dashboard queries', () => {
       'Hermes should be the entry point',
       'Already attached',
     ]);
+  });
+
+  it('resolves and deduplicates latest quotes from signal-only hypothesis evidence', async () => {
+    testDatabase.db
+      .insert(projectHypotheses)
+      .values({
+        id: 'hypothesis-signal',
+        stableKey: 'hypothesis:signal',
+        title: 'Signal-backed hypothesis',
+        explanation: 'Only signal evidence points here.',
+        state: 'emerging',
+        firstSeenAt: date('2026-06-01'),
+        lastSeenAt: date('2026-06-14'),
+      })
+      .run();
+    testDatabase.db
+      .insert(signals)
+      .values([
+        {
+          id: 'signal-1',
+          stableKey: 'signal:one',
+          title: 'Repeated Hermes interest',
+          description: 'Repeated observations',
+          createdAt: date('2026-06-13'),
+          updatedAt: date('2026-06-14'),
+        },
+        {
+          id: 'signal-2',
+          stableKey: 'signal:two',
+          title: 'More Hermes interest',
+          description: 'Overlapping observations',
+          createdAt: date('2026-06-13'),
+          updatedAt: date('2026-06-14'),
+        },
+      ])
+      .run();
+    testDatabase.db
+      .insert(signalEvidence)
+      .values([
+        { id: 'signal-evidence-1', signalId: 'signal-1', observationId: 'obs-latest' },
+        { id: 'signal-evidence-2', signalId: 'signal-1', observationId: 'obs-hermes' },
+        { id: 'signal-evidence-3', signalId: 'signal-2', observationId: 'obs-latest' },
+      ])
+      .run();
+    testDatabase.db
+      .insert(hypothesisEvidence)
+      .values([
+        {
+          id: 'hypothesis-signal-evidence-1',
+          hypothesisId: 'hypothesis-signal',
+          signalId: 'signal-1',
+        },
+        {
+          id: 'hypothesis-signal-evidence-2',
+          hypothesisId: 'hypothesis-signal',
+          signalId: 'signal-2',
+        },
+      ])
+      .run();
+
+    const hypothesis = (await getProjectHypotheses()).find(({ id }) => id === 'hypothesis-signal');
+
+    expect(hypothesis).toMatchObject({ supportingEvidenceCount: 2 });
+    expect(hypothesis?.latestQuotes.map(({ observationId }) => observationId)).toEqual([
+      'obs-latest',
+      'obs-hermes',
+    ]);
+  });
+
+  it('uses empty fallbacks for malformed persisted snapshot arrays', async () => {
+    testDatabase.db
+      .update(projectSnapshots)
+      .set({
+        activeThemes: '{bad',
+        obstacles: 'null',
+        unresolvedQuestions: '{"not":"an array"}',
+        recentChanges: '[bad',
+      })
+      .where(eq(projectSnapshots.id, 'snapshot-current'))
+      .run();
+
+    const project = (await getDashboardData()).currentProjects.find(
+      ({ projectId }) => projectId === 'project-1',
+    );
+
+    expect(project).toMatchObject({
+      activeThemes: [],
+      obstacles: [],
+      unresolvedQuestions: [],
+      recentChanges: [],
+    });
+  });
+
+  it('uses an empty payload fallback for malformed persisted event JSON', async () => {
+    testDatabase.db
+      .insert(projectEvents)
+      .values({
+        ...event('event-malformed', 'project-1', 'progress_recorded', '2026-06-14T12:00:00.000Z'),
+        payload: '{bad',
+      })
+      .run();
+
+    expect((await getRecentChanges())[0].payload).toEqual({});
+    expect((await getProjectTimeline('project-1'))[0].payload).toEqual({});
   });
 
   it('joins timeline event evidence to observation source references', async () => {
