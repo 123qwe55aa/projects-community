@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase, type DB } from '@/db';
 import {
+  corrections,
   eventEvidence,
   hypothesisEvidence,
   ingestionReceipts,
@@ -316,6 +317,7 @@ function insertEvent(
   },
   observationIds: string[],
 ) {
+  requireWritableProject(tx, input.projectId);
   const eventId = nanoid();
   tx.insert(projectEvents)
     .values({
@@ -343,6 +345,35 @@ function insertEvent(
       .run();
   }
   return eventId;
+}
+
+function requireWritableProject(tx: Transaction, projectId: string) {
+  requireProject(tx, projectId);
+  const mergeCorrection = tx
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.targetId, projectId),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    )
+    .get();
+  if (!mergeCorrection) return;
+
+  const payload = JSON.parse(mergeCorrection.payload) as unknown;
+  const targetProjectId =
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    typeof (payload as Record<string, unknown>).targetProjectId === 'string'
+      ? (payload as Record<string, string>).targetProjectId
+      : null;
+  if (!targetProjectId?.trim()) {
+    throw new Error(`Project ${projectId} has an invalid merge correction`);
+  }
+  throw new Error(`Project ${projectId} is merged into Project ${targetProjectId} and is read-only`);
 }
 
 function insertMissingHypothesisEvidence(

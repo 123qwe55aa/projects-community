@@ -165,6 +165,7 @@ describe('project governance', () => {
       targetProjectId: 'project-2',
       rationale: 'Replay with a different rationale',
     });
+    await confirmObservation({ observationId: 'obs-1', projectId: 'project-1' });
 
     expect(governanceRowCounts()).toEqual(rowCounts);
     expect(await getCurrentProjectSnapshot('project-1')).toMatchObject({
@@ -213,7 +214,7 @@ describe('project governance', () => {
     expect(testDatabase.db.select().from(corrections).all()).toHaveLength(2);
   });
 
-  it('reprojects an existing downstream target when a new source joins its merge chain', async () => {
+  it('rejects adding a new source through an already-merged intermediate target', async () => {
     seedProject('project-3', 'Final home');
     await mergeProjects({
       sourceProjectId: 'project-2',
@@ -221,22 +222,51 @@ describe('project governance', () => {
       rationale: 'Establish final target',
     });
     await confirmObservation({ observationId: 'obs-1', projectId: 'project-1' });
+    const rowCounts = governanceRowCounts();
 
+    await expect(
+      mergeProjects({
+        sourceProjectId: 'project-1',
+        targetProjectId: 'project-2',
+        rationale: 'Join existing chain',
+      }),
+    ).rejects.toThrow('Project project-2 is merged into Project project-3 and is read-only');
+
+    expect(governanceRowCounts()).toEqual(rowCounts);
+    expect((await getProjectTimeline('project-3')).flatMap(({ evidence }) => evidence)).toHaveLength(0);
+  });
+
+  it('rejects project writes after the project becomes a merged source', async () => {
+    seedDecisionSuggestion('suggestion-event-1');
+    seedProject('project-3', 'Another project');
     await mergeProjects({
       sourceProjectId: 'project-1',
       targetProjectId: 'project-2',
-      rationale: 'Join existing chain',
+      rationale: 'These are one effort',
     });
+    const rowCounts = governanceRowCounts();
+    const readOnlyError = 'Project project-1 is merged into Project project-2 and is read-only';
 
-    expect((await getProjectTimeline('project-3')).flatMap(({ evidence }) => evidence)).toHaveLength(
-      1,
-    );
-    expect(currentSnapshots('project-3')).toHaveLength(1);
-    expect(
-      JSON.parse((await getCurrentProjectSnapshot('project-3'))!.recentChanges) as Array<{
-        projectId: string;
-      }>,
-    ).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: 'project-1' })]));
+    await expect(
+      confirmObservation({ observationId: 'obs-1', projectId: 'project-1' }),
+    ).rejects.toThrow(readOnlyError);
+    await expect(
+      correctLifecycle({ projectId: 'project-1', state: 'active', rationale: 'Still active' }),
+    ).rejects.toThrow(readOnlyError);
+    await expect(
+      archiveProject({ projectId: 'project-1', rationale: 'Archive again' }),
+    ).rejects.toThrow(readOnlyError);
+    await expect(confirmDecisionSuggestion('suggestion-event-1')).rejects.toThrow(readOnlyError);
+    await expect(
+      mergeProjects({
+        sourceProjectId: 'project-3',
+        targetProjectId: 'project-1',
+        rationale: 'Do not write into a merged source',
+      }),
+    ).rejects.toThrow(readOnlyError);
+
+    expect(governanceRowCounts()).toEqual(rowCounts);
+    expect(testDatabase.db.select().from(decisions).all()).toHaveLength(0);
   });
 
   it('archives a project without deleting it', async () => {
@@ -357,6 +387,7 @@ describe('project hypothesis governance', () => {
 
   it('dismisses a hypothesis through a correction and state change without deleting evidence', async () => {
     await dismissHypothesis('hypothesis-1', 'Not a Project');
+    await dismissHypothesis('hypothesis-1', 'Repeated dismissal');
 
     expect((await getProjectHypotheses()).find((item) => item.id === 'hypothesis-1')).toBeUndefined();
     expect(testDatabase.db.select().from(hypothesisEvidence).all()).toHaveLength(2);
@@ -373,6 +404,15 @@ describe('project hypothesis governance', () => {
       correctionType: 'hypothesis_dismissed',
       payload: JSON.stringify({ rationale: 'Not a Project' }),
     });
+    expect(testDatabase.db.select().from(corrections).all()).toHaveLength(1);
+  });
+
+  it('rejects dismissal after a hypothesis is promoted', async () => {
+    await promoteHypothesis('hypothesis-1');
+
+    await expect(dismissHypothesis('hypothesis-1', 'Changed my mind')).rejects.toThrow(
+      'Hypothesis is not emerging: hypothesis-1',
+    );
   });
 });
 

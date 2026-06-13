@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
+  corrections,
   decisions,
   eventEvidence,
   hypothesisEvidence,
@@ -309,6 +310,59 @@ describe('Hermes V2 ingestion', () => {
     expect(testDatabase.db.select().from(projectEvents).all()).toHaveLength(0);
   });
 
+  it('rejects every new project event write to a merged source', async () => {
+    seedObservation('observation-1');
+    seedMergedProject('project-1', 'project-2');
+    const readOnlyError = 'Project project-1 is merged into Project project-2 and is read-only';
+
+    await expect(recordProjectEvent(validEvent)).rejects.toThrow(readOnlyError);
+    await expect(
+      attachObservationToProject({
+        idempotencyKey: 'hermes:attach-merged',
+        observationId: 'observation-1',
+        projectId: 'project-1',
+        rationale: 'Attach to merged source.',
+        occurredAt,
+      }),
+    ).rejects.toThrow(readOnlyError);
+    await expect(
+      suggestDecision({
+        idempotencyKey: 'hermes:suggest-merged',
+        projectId: 'project-1',
+        question: 'Should this write be rejected?',
+        evidenceObservationIds: ['observation-1'],
+        rationale: 'Merged sources are read-only.',
+      }),
+    ).rejects.toThrow(readOnlyError);
+    await expect(
+      recordObservation({
+        ...validObservation,
+        idempotencyKey: 'hermes:auto-attach-merged',
+        proposedProjectId: 'project-1',
+        assignmentConfidence: 100,
+        assignmentRationale: 'Would auto-attach to a merged source.',
+      }),
+    ).rejects.toThrow(readOnlyError);
+
+    expect(testDatabase.db.select().from(projectEvents).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(eventEvidence).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(ingestionReceipts).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(observations).all()).toHaveLength(1);
+  });
+
+  it('allows a durable ingestion receipt replay after its project becomes a merged source', async () => {
+    seedObservation('observation-1');
+    const first = await recordProjectEvent(validEvent);
+    seedMergedProject('project-1', 'project-2');
+
+    await expect(recordProjectEvent(validEvent)).resolves.toEqual({
+      ...first,
+      deduplicated: true,
+    });
+    expect(testDatabase.db.select().from(projectEvents).all()).toHaveLength(1);
+    expect(testDatabase.db.select().from(ingestionReceipts).all()).toHaveLength(1);
+  });
+
   it('makes ingestion receipts immutable', async () => {
     await recordObservation(validObservation);
 
@@ -352,6 +406,22 @@ function seedSignal(id: string) {
       description: id,
       createdAt: now,
       updatedAt: now,
+    })
+    .run();
+}
+
+function seedMergedProject(sourceProjectId: string, targetProjectId: string) {
+  testDatabase.db.insert(projects).values({ id: targetProjectId, summary: 'Merge target' }).run();
+  testDatabase.db
+    .insert(corrections)
+    .values({
+      id: `merge:${sourceProjectId}`,
+      targetType: 'project',
+      targetId: sourceProjectId,
+      correctionType: 'project_merged',
+      payload: JSON.stringify({ targetProjectId, rationale: 'Merged' }),
+      actor: 'user',
+      createdAt: new Date(occurredAt),
     })
     .run();
 }

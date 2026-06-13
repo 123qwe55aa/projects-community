@@ -44,6 +44,7 @@ export async function confirmObservation(input: {
     if (conflictingProjectId) {
       throw new Error(`Observation is already attached to Project ${conflictingProjectId}`);
     }
+    requireWritableProject(tx, input.projectId);
     const now = new Date();
     const rationale =
       observation.assignmentRationale ?? 'User confirmed the observation assignment.';
@@ -375,6 +376,7 @@ export async function dismissHypothesis(hypothesisId: string, rationale: string)
 
   getDatabase().db.transaction((tx) => {
     const hypothesis = requireHypothesis(tx, hypothesisId);
+    if (hypothesis.state === 'dismissed') return;
     if (hypothesis.state !== 'emerging') {
       throw new Error(`Hypothesis is not emerging: ${hypothesisId}`);
     }
@@ -423,6 +425,7 @@ function insertEvent(
     createdAt: Date;
   },
 ) {
+  requireWritableProject(tx, input.projectId);
   const id = nanoid();
   tx.insert(projectEvents)
     .values({
@@ -440,6 +443,14 @@ function requireProject(tx: Transaction, projectId: string) {
   const project = tx.select().from(projects).where(eq(projects.id, projectId)).get();
   if (!project) throw new Error(`Project not found: ${projectId}`);
   return project;
+}
+
+function requireWritableProject(tx: Transaction, projectId: string) {
+  requireProject(tx, projectId);
+  const targetProjectId = projectMergeTargets(tx).get(projectId);
+  if (targetProjectId) {
+    throw new Error(`Project ${projectId} is merged into Project ${targetProjectId} and is read-only`);
+  }
 }
 
 function requireObservation(tx: Transaction, observationId: string) {
