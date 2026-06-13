@@ -13,6 +13,8 @@ export const metadata = {
   title: 'Needs Attention',
 };
 
+export const dynamic = 'force-dynamic';
+
 export default async function AttentionPage() {
   const { db } = getDatabase();
   const [items, allProjects, decisionSuggestions] = await Promise.all([
@@ -99,7 +101,11 @@ export default async function AttentionPage() {
                 )}
                 <form action={confirmObservationAction} className="flex flex-wrap gap-2">
                   <input type="hidden" name="observationId" value={item.observationId} />
+                  <label className="sr-only" htmlFor={`${item.observationId}-reassign-project`}>
+                    Reassign {item.summary} to a Project
+                  </label>
                   <select
+                    id={`${item.observationId}-reassign-project`}
                     name="projectId"
                     required
                     defaultValue=""
@@ -150,7 +156,11 @@ export default async function AttentionPage() {
                 <form action={dismissDecisionSuggestionAction} className="flex flex-wrap gap-2">
                   <input type="hidden" name="eventId" value={suggestion.eventId} />
                   <input type="hidden" name="projectId" value={suggestion.projectId} />
+                  <label className="sr-only" htmlFor={`${suggestion.eventId}-dismiss-rationale`}>
+                    Dismissal rationale for {suggestion.question}
+                  </label>
                   <input
+                    id={`${suggestion.eventId}-dismiss-rationale`}
                     name="rationale"
                     required
                     placeholder="Why dismiss this suggestion?"
@@ -211,16 +221,20 @@ async function getPendingDecisionSuggestions() {
 }
 
 function payloadQuestion(payloadJson: string) {
-  const payload = JSON.parse(payloadJson) as unknown;
-  if (
-    typeof payload !== 'object' ||
-    payload === null ||
-    Array.isArray(payload) ||
-    typeof (payload as Record<string, unknown>).question !== 'string'
-  ) {
-    return 'Review this Decision suggestion';
+  try {
+    const payload = JSON.parse(payloadJson) as unknown;
+    if (
+      typeof payload === 'object' &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      typeof (payload as Record<string, unknown>).question === 'string'
+    ) {
+      return (payload as Record<string, string>).question;
+    }
+  } catch {
+    // Persisted malformed suggestions remain reviewable with fallback text.
   }
-  return (payload as Record<string, string>).question;
+  return 'Review this Decision suggestion';
 }
 
 function shortQuote(quote: string) {

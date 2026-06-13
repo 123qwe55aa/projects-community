@@ -7,8 +7,10 @@ import {
   confirmObservation,
   correctLifecycle,
   dismissDecisionSuggestion,
+  dismissHypothesis,
   ignoreObservation,
   mergeProjects,
+  promoteHypothesis,
 } from '@/lib/v2/governance';
 
 export async function confirmObservationAction(formData: FormData) {
@@ -65,9 +67,23 @@ export async function dismissDecisionSuggestionAction(formData: FormData) {
   revalidateV2(formText(formData, 'projectId'));
 }
 
+export async function promoteHypothesisAction(formData: FormData) {
+  const projectId = await promoteHypothesis(formText(formData, 'hypothesisId'));
+  revalidateV2(projectId);
+}
+
+export async function dismissHypothesisAction(formData: FormData) {
+  await dismissHypothesis(
+    formText(formData, 'hypothesisId'),
+    formText(formData, 'rationale'),
+  );
+  revalidateV2();
+}
+
 function revalidateV2(...projectIds: string[]) {
   revalidatePath('/');
   revalidatePath('/attention');
+  revalidatePath('/hypotheses');
   revalidatePath('/projects');
   for (const projectId of new Set(projectIds.filter(Boolean))) {
     revalidatePath(`/projects/${projectId}`);

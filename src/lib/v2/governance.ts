@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase, type DB } from '@/db';
 import {
@@ -6,9 +6,12 @@ import {
   decisionLinks,
   decisions,
   eventEvidence,
+  hypothesisEvidence,
   observations,
   projectEvents,
+  projectHypotheses,
   projects,
+  signalEvidence,
 } from '@/db/schema';
 import { projectProjectInTransaction } from './projection/project';
 
@@ -28,6 +31,19 @@ export async function confirmObservation(input: {
   getDatabase().db.transaction((tx) => {
     const observation = requireObservation(tx, input.observationId);
     requireProject(tx, input.projectId);
+    const ignored = findObservationCorrection(tx, input.observationId, 'observation_ignored');
+    if (ignored) throw new Error(`Observation is already ignored: ${input.observationId}`);
+    const confirmed = findObservationCorrection(tx, input.observationId, 'observation_confirmed');
+    if (confirmed) {
+      const confirmedProjectId = requireCorrectionPayloadText(confirmed.payload, 'projectId');
+      if (confirmedProjectId === input.projectId) return;
+      throw new Error(`Observation is already attached to Project ${confirmedProjectId}`);
+    }
+    const attachedProjectIds = observationAttachmentProjectIds(tx, input.observationId);
+    const conflictingProjectId = attachedProjectIds.find((projectId) => projectId !== input.projectId);
+    if (conflictingProjectId) {
+      throw new Error(`Observation is already attached to Project ${conflictingProjectId}`);
+    }
     const now = new Date();
     const rationale =
       observation.assignmentRationale ?? 'User confirmed the observation assignment.';
@@ -39,17 +55,19 @@ export async function confirmObservation(input: {
       payload: { projectId: input.projectId },
       createdAt: now,
     });
-    const eventId = insertEvent(tx, {
-      projectId: input.projectId,
-      eventType: 'observation_attached',
-      payload: { observationId: input.observationId },
-      rationale,
-      occurredAt: now,
-      createdAt: now,
-    });
-    tx.insert(eventEvidence)
-      .values({ id: nanoid(), eventId, observationId: input.observationId })
-      .run();
+    if (!attachedProjectIds.includes(input.projectId)) {
+      const eventId = insertEvent(tx, {
+        projectId: input.projectId,
+        eventType: 'observation_attached',
+        payload: { observationId: input.observationId },
+        rationale,
+        occurredAt: now,
+        createdAt: now,
+      });
+      tx.insert(eventEvidence)
+        .values({ id: nanoid(), eventId, observationId: input.observationId })
+        .run();
+    }
     projectProjectInTransaction(tx, input.projectId);
   });
 }
@@ -59,6 +77,13 @@ export async function ignoreObservation(observationId: string): Promise<void> {
 
   getDatabase().db.transaction((tx) => {
     requireObservation(tx, observationId);
+    if (findObservationCorrection(tx, observationId, 'observation_ignored')) return;
+    if (
+      findObservationCorrection(tx, observationId, 'observation_confirmed') ||
+      observationAttachmentProjectIds(tx, observationId).length > 0
+    ) {
+      throw new Error(`Observation is already confirmed: ${observationId}`);
+    }
     insertCorrection(tx, {
       targetType: 'observation',
       targetId: observationId,
@@ -185,6 +210,11 @@ export async function confirmDecisionSuggestion(eventId: string): Promise<string
     if (previousConfirmation) {
       return requirePayloadText(previousConfirmation.payload, 'decisionId');
     }
+    if (
+      findDecisionSuggestionCorrection(tx, eventId, 'decision_suggestion_dismissed')
+    ) {
+      throw new Error(`Decision suggestion is already dismissed: ${eventId}`);
+    }
 
     const suggestion = requireDecisionSuggestion(tx, eventId);
     const question = requirePayloadText(suggestion.payload, 'question');
@@ -232,6 +262,10 @@ export async function dismissDecisionSuggestion(eventId: string, rationale: stri
 
   getDatabase().db.transaction((tx) => {
     requireDecisionSuggestion(tx, eventId);
+    if (findDecisionSuggestionCorrection(tx, eventId, 'decision_suggestion_confirmed')) {
+      throw new Error(`Decision suggestion is already confirmed: ${eventId}`);
+    }
+    if (findDecisionSuggestionCorrection(tx, eventId, 'decision_suggestion_dismissed')) return;
     insertCorrection(tx, {
       targetType: 'project_event',
       targetId: eventId,
@@ -242,10 +276,94 @@ export async function dismissDecisionSuggestion(eventId: string, rationale: stri
   });
 }
 
+export async function promoteHypothesis(hypothesisId: string): Promise<string> {
+  requireText(hypothesisId, 'Hypothesis ID');
+
+  return getDatabase().db.transaction((tx) => {
+    const hypothesis = requireHypothesis(tx, hypothesisId);
+    if (hypothesis.state === 'promoted' && hypothesis.promotedProjectId) {
+      return hypothesis.promotedProjectId;
+    }
+    if (hypothesis.state !== 'emerging') {
+      throw new Error(`Hypothesis is not emerging: ${hypothesisId}`);
+    }
+
+    const now = new Date();
+    const projectId = nanoid();
+    tx.insert(projects)
+      .values({
+        id: projectId,
+        background: hypothesis.explanation,
+        summary: hypothesis.title,
+        visibility: 'private',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    insertEvent(tx, {
+      projectId,
+      eventType: 'project_created',
+      payload: { summary: hypothesis.title },
+      rationale: hypothesis.explanation,
+      occurredAt: now,
+      createdAt: now,
+    });
+    const promotionEventId = insertEvent(tx, {
+      projectId,
+      eventType: 'hypothesis_promoted',
+      payload: { hypothesisId },
+      rationale: hypothesis.explanation,
+      occurredAt: now,
+      createdAt: now,
+    });
+    const observationIds = hypothesisObservationIds(tx, hypothesisId);
+    if (observationIds.length > 0) {
+      tx.insert(eventEvidence)
+        .values(
+          observationIds.map((observationId) => ({
+            id: nanoid(),
+            eventId: promotionEventId,
+            observationId,
+          })),
+        )
+        .run();
+    }
+    tx.update(projectHypotheses)
+      .set({ state: 'promoted', promotedProjectId: projectId })
+      .where(eq(projectHypotheses.id, hypothesisId))
+      .run();
+    projectProjectInTransaction(tx, projectId);
+    return projectId;
+  });
+}
+
+export async function dismissHypothesis(hypothesisId: string, rationale: string): Promise<void> {
+  requireText(hypothesisId, 'Hypothesis ID');
+  requireText(rationale, 'Rationale');
+
+  getDatabase().db.transaction((tx) => {
+    const hypothesis = requireHypothesis(tx, hypothesisId);
+    if (hypothesis.state !== 'emerging') {
+      throw new Error(`Hypothesis is not emerging: ${hypothesisId}`);
+    }
+    insertCorrection(tx, {
+      targetType: 'project_hypothesis',
+      targetId: hypothesisId,
+      correctionType: 'hypothesis_dismissed',
+      payload: { rationale: rationale.trim() },
+      createdAt: new Date(),
+    });
+    tx.update(projectHypotheses)
+      .set({ state: 'dismissed' })
+      .where(eq(projectHypotheses.id, hypothesisId))
+      .run();
+  });
+}
+
 function insertCorrection(
   tx: Transaction,
   input: {
-    targetType: 'observation' | 'project_event' | 'project';
+    targetType: 'observation' | 'project_event' | 'project' | 'project_hypothesis';
     targetId: string;
     correctionType: string;
     payload: Record<string, unknown>;
@@ -313,6 +431,67 @@ function requireDecisionSuggestion(tx: Transaction, eventId: string) {
   return event;
 }
 
+function requireHypothesis(tx: Transaction, hypothesisId: string) {
+  const hypothesis = tx
+    .select()
+    .from(projectHypotheses)
+    .where(eq(projectHypotheses.id, hypothesisId))
+    .get();
+  if (!hypothesis) throw new Error(`Hypothesis not found: ${hypothesisId}`);
+  return hypothesis;
+}
+
+function findObservationCorrection(
+  tx: Transaction,
+  observationId: string,
+  correctionType: string,
+) {
+  return tx
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'observation'),
+        eq(corrections.targetId, observationId),
+        eq(corrections.correctionType, correctionType),
+      ),
+    )
+    .get();
+}
+
+function observationAttachmentProjectIds(tx: Transaction, observationId: string) {
+  return tx
+    .select({ projectId: projectEvents.projectId })
+    .from(eventEvidence)
+    .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
+    .where(
+      and(
+        eq(eventEvidence.observationId, observationId),
+        eq(projectEvents.eventType, 'observation_attached'),
+      ),
+    )
+    .all()
+    .map(({ projectId }) => projectId);
+}
+
+function hypothesisObservationIds(tx: Transaction, hypothesisId: string) {
+  const evidence = tx
+    .select()
+    .from(hypothesisEvidence)
+    .where(eq(hypothesisEvidence.hypothesisId, hypothesisId))
+    .all();
+  const signalIds = evidence.flatMap(({ signalId }) => (signalId ? [signalId] : []));
+  const signalRows = signalIds.length
+    ? tx.select().from(signalEvidence).where(inArray(signalEvidence.signalId, signalIds)).all()
+    : [];
+  return [
+    ...new Set([
+      ...evidence.flatMap(({ observationId }) => (observationId ? [observationId] : [])),
+      ...signalRows.map(({ observationId }) => observationId),
+    ]),
+  ];
+}
+
 function findDecisionSuggestionCorrection(
   tx: Transaction,
   eventId: string,
@@ -341,6 +520,20 @@ function requirePayloadText(payloadJson: string, field: string) {
     !(payload as Record<string, string>)[field].trim()
   ) {
     throw new Error(`Decision suggestion has invalid ${field}`);
+  }
+  return (payload as Record<string, string>)[field];
+}
+
+function requireCorrectionPayloadText(payloadJson: string, field: string) {
+  const payload = JSON.parse(payloadJson) as unknown;
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    Array.isArray(payload) ||
+    typeof (payload as Record<string, unknown>)[field] !== 'string' ||
+    !(payload as Record<string, string>)[field].trim()
+  ) {
+    throw new Error(`Correction has invalid ${field}`);
   }
   return (payload as Record<string, string>)[field];
 }
