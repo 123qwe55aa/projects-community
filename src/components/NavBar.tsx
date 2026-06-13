@@ -44,6 +44,7 @@ export function NavBar() {
             <Link
               key={link.href}
               href={link.href}
+              aria-current={active ? 'page' : undefined}
               className={[
                 'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition',
                 active
@@ -67,6 +68,7 @@ export function NavBar() {
             <Link
               key={link.href}
               href={link.href}
+              aria-current={active ? 'page' : undefined}
               className={[
                 'rounded-md px-2.5 py-1.5 text-xs transition',
                 active

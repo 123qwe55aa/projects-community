@@ -15,7 +15,7 @@ export function CurrentProjects({ projects }: { projects: CurrentProjectCard[] }
     return (
       <section aria-label="Current Projects">
         <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-900/40 p-8 text-center">
-          <p className="text-sm text-zinc-500">No current project snapshots yet.</p>
+          <p className="text-sm text-zinc-400">No current project snapshots yet.</p>
         </div>
       </section>
     );
@@ -31,7 +31,7 @@ export function CurrentProjects({ projects }: { projects: CurrentProjectCard[] }
           <div key={state} className="space-y-3">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold capitalize text-zinc-200">{state}</h2>
-              <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-zinc-500">
+              <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
                 {groupedProjects.length}
               </span>
             </div>
@@ -76,7 +76,7 @@ function ProjectCard({ project }: { project: CurrentProjectCard }) {
           value={project.obstacles.length > 0 ? project.obstacles.join(', ') : null}
         />
         <div>
-          <dt className="text-xs font-medium uppercase tracking-wide text-zinc-600">Evidence</dt>
+          <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">Evidence</dt>
           <dd className="mt-1 text-zinc-300">
             {project.evidenceCount} {project.evidenceCount === 1 ? 'source' : 'sources'}
           </dd>
@@ -89,7 +89,7 @@ function ProjectCard({ project }: { project: CurrentProjectCard }) {
 function ProjectDetail({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-600">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">{label}</dt>
       <dd className="mt-1 text-zinc-300">{value ?? 'None recorded'}</dd>
     </div>
   );

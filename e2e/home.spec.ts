@@ -14,6 +14,10 @@ test.describe('Home / Landing Page', () => {
     await page.goto('/');
     const navigation = page.getByRole('navigation');
     await expect(navigation.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(navigation.getByRole('link', { name: 'Dashboard', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await expect(navigation.getByRole('link', { name: 'Needs Attention', exact: true })).toBeVisible();
     await expect(navigation.getByRole('link', { name: 'Hypotheses', exact: true })).toBeVisible();
     await expect(navigation.getByRole('link', { name: 'Projects', exact: true })).toBeVisible();

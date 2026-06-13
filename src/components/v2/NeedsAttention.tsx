@@ -11,7 +11,7 @@ export function NeedsAttention({ items }: { items: AttentionItem[] }) {
           <h2 id="needs-attention-heading" className="text-xl font-semibold text-white">
             Needs Attention ({items.length})
           </h2>
-          <p className="mt-1 text-sm text-zinc-500">Pending observations that need a human call.</p>
+          <p className="mt-1 text-sm text-zinc-400">Pending observations that need a human call.</p>
         </div>
         <Link href="/attention" className="text-sm text-amber-400 transition hover:text-amber-300">
           Review all
@@ -19,7 +19,7 @@ export function NeedsAttention({ items }: { items: AttentionItem[] }) {
       </div>
 
       {pendingItems.length === 0 ? (
-        <p className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5 text-sm text-zinc-500">
+        <p className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5 text-sm text-zinc-400">
           Nothing needs attention right now.
         </p>
       ) : (
@@ -32,7 +32,7 @@ export function NeedsAttention({ items }: { items: AttentionItem[] }) {
                   {item.type.replaceAll('_', ' ')}
                 </span>
               </div>
-              <blockquote className="mt-3 border-l border-zinc-700 pl-3 text-sm italic text-zinc-500">
+              <blockquote className="mt-3 border-l border-zinc-700 pl-3 text-sm italic text-zinc-400">
                 &ldquo;{item.sourceQuote}&rdquo;
               </blockquote>
             </li>

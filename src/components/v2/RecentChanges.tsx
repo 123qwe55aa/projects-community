@@ -8,11 +8,11 @@ export function RecentChanges({ changes }: { changes: RecentChange[] }) {
         <h2 id="recent-changes-heading" className="text-xl font-semibold text-white">
           Recent Changes
         </h2>
-        <p className="mt-1 text-sm text-zinc-500">The latest evidence-backed project events.</p>
+        <p className="mt-1 text-sm text-zinc-400">The latest evidence-backed project events.</p>
       </div>
 
       {changes.length === 0 ? (
-        <p className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5 text-sm text-zinc-500">
+        <p className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5 text-sm text-zinc-400">
           No project changes recorded yet.
         </p>
       ) : (
@@ -29,13 +29,13 @@ export function RecentChanges({ changes }: { changes: RecentChange[] }) {
                 >
                   {change.projectSummary ?? 'Unknown project'}
                 </Link>
-                <time dateTime={change.occurredAt} className="text-xs text-zinc-600">
+                <time dateTime={change.occurredAt} className="text-xs text-zinc-400">
                   {relativeTimestamp(change.occurredAt)}
                 </time>
               </div>
               {change.rationale && <p className="mt-2 text-sm text-zinc-400">{change.rationale}</p>}
               {change.sourceQuote && (
-                <blockquote className="mt-3 border-l border-zinc-700 pl-3 text-sm italic text-zinc-500">
+                <blockquote className="mt-3 border-l border-zinc-700 pl-3 text-sm italic text-zinc-400">
                   &ldquo;{change.sourceQuote}&rdquo;
                 </blockquote>
               )}
