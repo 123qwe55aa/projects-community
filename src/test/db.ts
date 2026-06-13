@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { closeDatabase, getDatabase } from '@/db';
 import { initDatabase } from '@/db/migrate';
 
+let harnessActive = false;
+
 export function createTestDatabase() {
+  if (harnessActive) {
+    throw new Error('A test database harness is already active. Call cleanup() before creating another.');
+  }
+
   closeDatabase();
   const directory = mkdtempSync(join(tmpdir(), 'projects-community-'));
   const path = join(directory, 'test.db');
@@ -14,6 +20,7 @@ export function createTestDatabase() {
   migrated.sqlite.close();
   const database = getDatabase();
   let cleanedUp = false;
+  harnessActive = true;
 
   return {
     ...database,
@@ -29,6 +36,7 @@ export function createTestDatabase() {
         process.env.PROJECTS_COMMUNITY_DB_PATH = previousPath;
       }
       rmSync(directory, { recursive: true, force: true });
+      harnessActive = false;
     },
   };
 }

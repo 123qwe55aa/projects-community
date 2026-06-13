@@ -17,16 +17,32 @@ describe('createTestDatabase', () => {
     }
   });
 
-  it('keeps databases created by separate harnesses isolated', async () => {
+  it('rejects a second active harness without invalidating the first', async () => {
     const first = createTestDatabase();
+    try {
+      await first.db.insert(projects).values({ id: 'project-1', summary: 'One' });
+
+      expect(() => createTestDatabase()).toThrow(
+        'A test database harness is already active. Call cleanup() before creating another.',
+      );
+      expect((await first.db.select().from(projects)).map((row) => row.id)).toEqual(['project-1']);
+    } finally {
+      first.cleanup();
+    }
+  });
+
+  it('creates sequential harnesses with different paths and isolated rows', async () => {
+    const first = createTestDatabase();
+    const firstPath = first.path;
     await first.db.insert(projects).values({ id: 'project-1', summary: 'One' });
+    first.cleanup();
 
     const second = createTestDatabase();
     try {
+      expect(second.path).not.toBe(firstPath);
       expect(await second.db.select().from(projects)).toEqual([]);
     } finally {
       second.cleanup();
-      first.cleanup();
     }
   });
 
@@ -71,5 +87,6 @@ describe('createTestDatabase', () => {
     testDb.cleanup();
 
     expect(existsSync(directory)).toBe(false);
+    expect(() => testDb.cleanup()).not.toThrow();
   });
 });
