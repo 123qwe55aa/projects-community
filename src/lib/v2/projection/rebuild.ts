@@ -1,34 +1,47 @@
 import { asc } from 'drizzle-orm';
-import { getDatabase } from '@/db';
+import { getDatabase, type DB } from '@/db';
 import { projectEvents, projectionCheckpoints, projects } from '@/db/schema';
-import { PROJECT_PROJECTION_VERSION, projectProject } from './project';
+import {
+  PROJECT_PROJECTION_VERSION,
+  projectProjectInTransaction,
+  type ProjectProjectionTransaction,
+} from './project';
 
 export const PROJECT_PROJECTION_CHECKPOINT = 'project-projections';
 
 export async function rebuildAllProjectProjections() {
-  writeCheckpoint({ status: 'running', error: null });
+  const database = getDatabase().db;
+  writeCheckpoint(database, { status: 'running', error: null });
 
   try {
-    const sourceEvents = getDatabase()
-      .db.select({ id: projectEvents.id })
-      .from(projectEvents)
-      .orderBy(asc(projectEvents.occurredAt), asc(projectEvents.createdAt), asc(projectEvents.id))
-      .all();
-    const sourceEventIds = new Set(sourceEvents.map(({ id }) => id));
-    const boundaryEvent = sourceEvents.at(-1);
-    const projectIds = getDatabase()
-      .db.select({ id: projects.id })
-      .from(projects)
-      .orderBy(asc(projects.createdAt), asc(projects.id))
-      .all();
+    database.transaction(
+      (tx) => {
+        const boundaryEvent = tx
+          .select({ id: projectEvents.id })
+          .from(projectEvents)
+          .orderBy(asc(projectEvents.occurredAt), asc(projectEvents.createdAt), asc(projectEvents.id))
+          .all()
+          .at(-1);
+        const projectIds = tx
+          .select({ id: projects.id })
+          .from(projects)
+          .orderBy(asc(projects.createdAt), asc(projects.id))
+          .all();
 
-    for (const { id } of projectIds) {
-      await projectProject(id, sourceEventIds);
-    }
+        for (const { id } of projectIds) {
+          projectProjectInTransaction(tx, id);
+        }
 
-    writeCheckpoint({ status: 'completed', lastEventId: boundaryEvent?.id ?? null, error: null });
+        writeCheckpoint(tx, {
+          status: 'completed',
+          lastEventId: boundaryEvent?.id ?? null,
+          error: null,
+        });
+      },
+      { behavior: 'immediate' },
+    );
   } catch (error) {
-    writeCheckpoint({
+    writeCheckpoint(database, {
       status: 'failed',
       error: error instanceof Error ? error.message : String(error),
     });
@@ -36,13 +49,16 @@ export async function rebuildAllProjectProjections() {
   }
 }
 
-function writeCheckpoint(input: {
-  status: 'running' | 'completed' | 'failed';
-  lastEventId?: string | null;
-  error: string | null;
-}) {
-  getDatabase()
-    .db.insert(projectionCheckpoints)
+function writeCheckpoint(
+  store: DB | ProjectProjectionTransaction,
+  input: {
+    status: 'running' | 'completed' | 'failed';
+    lastEventId?: string | null;
+    error: string | null;
+  },
+) {
+  store
+    .insert(projectionCheckpoints)
     .values({
       name: PROJECT_PROJECTION_CHECKPOINT,
       projectionVersion: PROJECT_PROJECTION_VERSION,

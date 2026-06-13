@@ -108,6 +108,22 @@ describe('project projection', () => {
     expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
   });
 
+  it.each([
+    ['progress_recorded', {}, 1],
+    ['obstacle_identified', { obstacle: 42 }, 1],
+    ['interest_increased', { theme: '' }, 1],
+    ['observation_attached', {}, 1],
+    ['progress_recorded', { summary: 'Unsupported schema' }, 2],
+  ])(
+    'rejects invalid relevant event %s payload or schema version',
+    async (eventType, payload, schemaVersion) => {
+      seedEvents([event(eventType, payload, undefined, schemaVersion)]);
+
+      await expect(projectProject('project-1')).rejects.toThrow('Invalid project event');
+      expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
+    },
+  );
+
   it('reduces themes, obstacles, questions, and five newest changes deterministically', async () => {
     seedQuestion('question-1', 'Which dashboard evidence belongs here?');
     seedQuestion('question-2', 'Which dashboard evidence belongs here?');
@@ -141,6 +157,15 @@ describe('project projection', () => {
       'event-6',
       'event-5',
     ]);
+  });
+
+  it('rejects question evidence with an unsupported schema version', async () => {
+    seedQuestion('question-1', 'Is this evidence current?', 2);
+    seedEvents([event('observation_attached', { observationId: 'question-1' })]);
+    linkEvidence('event-1', 'question-1');
+
+    await expect(projectProject('project-1')).rejects.toThrow('Invalid question evidence');
+    expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
   });
 
   it('replaces the current snapshot while retaining snapshot history', async () => {
@@ -232,6 +257,35 @@ describe('project projection rebuild', () => {
     ).toEqual(['event-1']);
   });
 
+  it('uses one consistent correction snapshot across every rebuilt project', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values({
+        id: 'project-2',
+        summary: 'Second project',
+        createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      })
+      .run();
+    seedEventsForProject('project-2', [
+      event('lifecycle_inferred', { state: 'dormant', rationale: 'No recent work' }),
+    ]);
+
+    const rebuilding = rebuildAllProjectProjections();
+    seedCorrection(
+      'lifecycle_state',
+      { state: 'active', rationale: 'Inserted while rebuild was running' },
+      'user',
+      '2026-06-13T11:00:00.000Z',
+      'project-2',
+    );
+    await rebuilding;
+
+    expect(await getCurrentProjectSnapshot('project-2')).toMatchObject({
+      lifecycleState: 'dormant',
+      lifecycleRationale: 'No recent work',
+    });
+  });
+
   it('fails rebuild when a lifecycle correction has an invalid state', async () => {
     seedCorrection('lifecycle_state', {
       state: 'paused',
@@ -242,6 +296,34 @@ describe('project projection rebuild', () => {
 
     expect(checkpoint()).toMatchObject({ status: 'failed' });
     expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
+  });
+
+  it('rolls back every project projection when a later project fails', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values({
+        id: 'project-2',
+        summary: 'Original second summary',
+        createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      })
+      .run();
+    seedEvents([event('progress_recorded', { summary: 'Projected first summary' })]);
+    seedEventsForProject('project-2', [event('obstacle_identified', {})]);
+
+    await expect(rebuildAllProjectProjections()).rejects.toThrow('Invalid project event');
+
+    expect(testDatabase.db.select().from(projectSnapshots).all()).toHaveLength(0);
+    expect(
+      testDatabase.db
+        .select({ id: projects.id, summary: projects.summary })
+        .from(projects)
+        .orderBy(asc(projects.id))
+        .all(),
+    ).toEqual([
+      { id: 'project-1', summary: 'Original summary' },
+      { id: 'project-2', summary: 'Original second summary' },
+    ]);
+    expect(checkpoint()).toMatchObject({ status: 'failed' });
   });
 
   it('persists a failed checkpoint and rethrows when a project cannot be projected', async () => {
@@ -281,7 +363,7 @@ describe('project projection rebuild', () => {
 
   it('retains merged and archived source events and snapshot history through rebuild', async () => {
     seedEvents([
-      event('project_merged', { targetProjectId: 'project-2', rationale: 'Combined work' }),
+      event('project_merged', { sourceProjectId: 'project-1', targetProjectId: 'project-2' }),
       event('project_archived', { rationale: 'Work concluded' }),
     ]);
     const sourceEventsBefore = testDatabase.db
@@ -309,7 +391,7 @@ describe('project projection rebuild', () => {
   });
 });
 
-function event(eventType: string, payload: unknown, occurredAt?: string) {
+function event(eventType: string, payload: unknown, occurredAt?: string, schemaVersion = 1) {
   sequence += 1;
   const timestamp = occurredAt ?? `2026-06-13T10:${String(sequence).padStart(2, '0')}:00.000Z`;
   return {
@@ -318,27 +400,31 @@ function event(eventType: string, payload: unknown, occurredAt?: string) {
     payload,
     occurredAt: timestamp,
     createdAt: timestamp,
+    schemaVersion,
   };
 }
 
 function seedEvents(events: ReturnType<typeof event>[]) {
+  seedEventsForProject('project-1', events);
+}
+
+function seedEventsForProject(projectId: string, events: ReturnType<typeof event>[]) {
   testDatabase.db
     .insert(projectEvents)
     .values(
       events.map((item) => ({
         ...item,
-        projectId: 'project-1',
+        projectId,
         payload: JSON.stringify(item.payload),
         actor: 'hermes',
         occurredAt: new Date(item.occurredAt),
         createdAt: new Date(item.createdAt),
-        schemaVersion: 1,
       })),
     )
     .run();
 }
 
-function seedQuestion(id: string, summary: string) {
+function seedQuestion(id: string, summary: string, schemaVersion = 1) {
   testDatabase.db
     .insert(observations)
     .values({
@@ -352,7 +438,7 @@ function seedQuestion(id: string, summary: string) {
       observedAt: new Date('2026-06-13T10:00:00.000Z'),
       recordedAt: new Date('2026-06-13T10:00:00.000Z'),
       actor: 'hermes',
-      schemaVersion: 1,
+      schemaVersion,
     })
     .run();
 }
@@ -369,6 +455,7 @@ function seedCorrection(
   payload: unknown,
   actor = 'user',
   createdAt = '2026-06-13T10:30:00.000Z',
+  projectId = 'project-1',
 ) {
   sequence += 1;
   testDatabase.db
@@ -376,7 +463,7 @@ function seedCorrection(
     .values({
       id: `correction-${sequence}`,
       targetType: 'project',
-      targetId: 'project-1',
+      targetId: projectId,
       correctionType,
       payload: JSON.stringify(payload),
       actor,
