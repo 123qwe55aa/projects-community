@@ -22,6 +22,13 @@
       "when": 1781331070015,
       "tag": "0002_empty_the_enforcers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781331364940,
+      "tag": "0003_correction-target-guards",
+      "breakpoints": true
     }
   ]
 }

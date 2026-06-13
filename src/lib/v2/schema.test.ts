@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
+  corrections,
   eventEvidence,
   hypothesisEvidence,
   observations,
@@ -192,6 +193,7 @@ describe('V2 schema', () => {
 
   it('rejects updates and deletes from immutable event-store tables', () => {
     const { db, sqlite } = createV2TestDatabase();
+    insertCorrection(db, 'correction-1', 'observation', 'obs-1');
     db.insert(eventEvidence)
       .values({ id: 'event-evidence-1', eventId: 'event-1', observationId: 'obs-1' })
       .run();
@@ -209,6 +211,7 @@ describe('V2 schema', () => {
     for (const table of [
       'observations',
       'project_events',
+      'corrections',
       'event_evidence',
       'signal_evidence',
       'hypothesis_evidence',
@@ -222,6 +225,37 @@ describe('V2 schema', () => {
     }
 
     expect(db.select().from(observations).where(eq(observations.id, 'obs-1')).get()).toBeDefined();
+  });
+
+  it('allows corrections for existing V2 target types', () => {
+    const { db } = createV2TestDatabase();
+
+    expect(() => insertCorrection(db, 'correction-observation', 'observation', 'obs-1')).not.toThrow();
+    expect(() =>
+      insertCorrection(db, 'correction-project-event', 'project_event', 'event-1'),
+    ).not.toThrow();
+    expect(() => insertCorrection(db, 'correction-project', 'project', 'project-1')).not.toThrow();
+    expect(() =>
+      insertCorrection(db, 'correction-hypothesis', 'project_hypothesis', 'hypothesis-1'),
+    ).not.toThrow();
+  });
+
+  it('rejects corrections for unknown types and missing targets', () => {
+    const { db } = createV2TestDatabase();
+
+    expect(() => insertCorrection(db, 'unknown', 'signal', 'signal-1')).toThrow(
+      'corrections target_type is invalid',
+    );
+    for (const targetType of [
+      'observation',
+      'project_event',
+      'project',
+      'project_hypothesis',
+    ]) {
+      expect(() => insertCorrection(db, `missing-${targetType}`, targetType, 'missing')).toThrow(
+        'corrections target does not exist',
+      );
+    }
   });
 });
 
@@ -303,6 +337,26 @@ function insertSnapshot(
       sourceEventId: 'event-1',
       projectionVersion: 1,
       isCurrent,
+      createdAt: new Date(),
+    })
+    .run();
+}
+
+function insertCorrection(
+  db: ReturnType<typeof createTestDatabase>['db'],
+  id: string,
+  targetType: string,
+  targetId: string,
+) {
+  return db
+    .insert(corrections)
+    .values({
+      id,
+      targetType,
+      targetId,
+      correctionType: 'clarification',
+      payload: '{}',
+      actor: 'hermes',
       createdAt: new Date(),
     })
     .run();

@@ -247,7 +247,7 @@ export const corrections = sqliteTable(
   'corrections',
   {
     id: text('id').primaryKey(),
-    // Polymorphic targets cannot use one SQLite FK; governance validation will enforce target existence.
+    // Polymorphic targets cannot use one SQLite FK; migration triggers validate type and existence.
     targetType: text('target_type').notNull(),
     targetId: text('target_id').notNull(),
     correctionType: text('correction_type').notNull(),
