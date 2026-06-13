@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function Home() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-8">
@@ -35,18 +37,18 @@ export default function Home() {
         </div>
 
         <div className="flex justify-center gap-4">
-          <a
+          <Link
             href="/projects"
             className="rounded-full bg-white px-6 py-2.5 text-sm font-medium text-black hover:bg-zinc-200 transition"
           >
             View Projects
-          </a>
-          <a
+          </Link>
+          <Link
             href="/decisions"
             className="rounded-full border border-zinc-700 px-6 py-2.5 text-sm font-medium text-zinc-300 hover:border-zinc-500 transition"
           >
             View Decisions
-          </a>
+          </Link>
           <a
             href="/map"
             className="rounded-full border border-zinc-700 px-6 py-2.5 text-sm font-medium text-zinc-300 hover:border-zinc-500 transition"

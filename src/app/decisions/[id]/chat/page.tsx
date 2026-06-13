@@ -38,7 +38,7 @@ export default async function DecisionChatPage({
   const contextType = candidateId ? 'candidate' : 'decision';
   const contextId = candidateId || decisionId;
 
-  let existingConversations = await db
+  const existingConversations = await db
     .select()
     .from(conversations)
     .where(

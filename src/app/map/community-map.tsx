@@ -548,7 +548,8 @@ export function CommunityMap({ projects, decisionMarkers }: CommunityMapProps) {
   }, [projects, recalcBuildings]);
 
   useEffect(() => {
-    recalcDecisionPins();
+    const frame = requestAnimationFrame(recalcDecisionPins);
+    return () => cancelAnimationFrame(frame);
   }, [decisionMarkers, canvasSize, recalcDecisionPins]);
 
   // Animation loop
