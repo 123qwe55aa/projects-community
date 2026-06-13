@@ -24,9 +24,11 @@ test.describe('Community Map Page', () => {
   test('legend is visible', async ({ page }) => {
     await page.goto('/map');
 
-    // Legend shows building styles and/or growth stages
-    // Look for legend text or growth stage labels
-    const legendArea = page.getByText(/seed|sprout|sapling|tree/i).first();
-    await expect(legendArea).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /legend/i }).click();
+
+    // Legend shows building styles and growth stages once opened.
+    await expect(page.getByText('Building Styles')).toBeVisible();
+    await expect(page.getByText('Growth Stages')).toBeVisible();
+    await expect(page.getByText(/seedling|sprouting|growing|mature/i).first()).toBeVisible();
   });
 });
