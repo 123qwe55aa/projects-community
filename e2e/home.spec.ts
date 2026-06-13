@@ -1,39 +1,33 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Home / Landing Page', () => {
-  test('loads with title and description', async ({ page }) => {
+  test('shows the Hermes-first current-state dashboard', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('h1')).toContainText('Projects Community');
-    await expect(page.locator('body')).toContainText('Local-first research workspace');
+    await expect(page.getByRole('heading', { name: 'Current Projects' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Needs Attention' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Recent Changes' })).toBeVisible();
+    await expect(page.getByText('Hermes-first project observatory')).toBeVisible();
   });
 
-  test('shows Projects, Decisions, and Map cards', async ({ page }) => {
+  test('shows the V2 primary navigation links', async ({ page }) => {
     await page.goto('/');
-    // Cards are divs with h3 inside a grid container
-    const cards = page.locator('.grid.grid-cols-1 > div');
-    await expect(cards).toHaveCount(3);
-    await expect(page.getByText('Projects', { exact: true })).toBeVisible();
-    await expect(page.getByText('Decisions', { exact: true })).toBeVisible();
-    await expect(page.getByText('Community Map', { exact: true })).toBeVisible();
+    const navigation = page.getByRole('navigation');
+    await expect(navigation.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(navigation.getByRole('link', { name: 'Needs Attention', exact: true })).toBeVisible();
+    await expect(navigation.getByRole('link', { name: 'Hypotheses', exact: true })).toBeVisible();
+    await expect(navigation.getByRole('link', { name: 'Projects', exact: true })).toBeVisible();
   });
 
-  test('View Projects link navigates to /projects', async ({ page }) => {
+  test('Decisions remains reachable as a secondary link', async ({ page }) => {
     await page.goto('/');
-    await page.click('text=View Projects');
-    await page.waitForURL('/projects');
-    await expect(page.locator('h1')).toContainText('Projects');
-  });
-
-  test('View Decisions link navigates to /decisions', async ({ page }) => {
-    await page.goto('/');
-    await page.click('text=View Decisions');
+    await page.getByRole('navigation').getByRole('link', { name: /Decisions/ }).click();
     await page.waitForURL('/decisions');
     await expect(page.locator('h1')).toContainText('Decisions');
   });
 
-  test('Community Map link navigates to /map', async ({ page }) => {
+  test('Community Map remains reachable as a secondary link', async ({ page }) => {
     await page.goto('/');
-    await page.click('text=Community Map');
+    await page.getByRole('navigation').getByRole('link', { name: /Community Map/ }).click();
     await page.waitForURL('/map');
     await expect(page.locator('h1')).toContainText('Community Map');
   });
