@@ -13,8 +13,9 @@ import {
 export const PROJECT_PROJECTION_VERSION = 1;
 
 type JsonObject = Record<string, unknown>;
+type LifecycleState = 'active' | 'dormant' | 'ended' | 'archived';
 
-export async function projectProject(projectId: string) {
+export async function projectProject(projectId: string, sourceEventIds?: ReadonlySet<string>) {
   const database = getDatabase().db;
 
   return database.transaction((tx) => {
@@ -26,15 +27,17 @@ export async function projectProject(projectId: string) {
       .from(projectEvents)
       .where(eq(projectEvents.projectId, projectId))
       .orderBy(asc(projectEvents.occurredAt), asc(projectEvents.createdAt), asc(projectEvents.id))
-      .all();
+      .all()
+      .filter((event) => sourceEventIds?.has(event.id) ?? true);
     const questionEvidence = tx
-      .select({ summary: observations.summary })
+      .select({ eventId: eventEvidence.eventId, summary: observations.summary })
       .from(eventEvidence)
       .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
       .innerJoin(observations, eq(eventEvidence.observationId, observations.id))
       .where(and(eq(projectEvents.projectId, projectId), eq(observations.type, 'question')))
       .orderBy(asc(observations.observedAt), asc(observations.recordedAt), asc(observations.id))
-      .all();
+      .all()
+      .filter(({ eventId }) => sourceEventIds?.has(eventId) ?? true);
     const lifecycleCorrections = tx
       .select()
       .from(corrections)
@@ -43,14 +46,13 @@ export async function projectProject(projectId: string) {
           eq(corrections.targetType, 'project'),
           eq(corrections.targetId, projectId),
           eq(corrections.correctionType, 'lifecycle_state'),
-          eq(corrections.actor, 'user'),
         ),
       )
       .orderBy(asc(corrections.createdAt), asc(corrections.id))
       .all();
 
     let summary = project.summary ?? '';
-    let lifecycleState = 'active';
+    let lifecycleState: LifecycleState = 'active';
     let lifecycleRationale: string | null = null;
     let lifecycleOccurredAt: Date | null = null;
     const activeThemes = new Set<string>();
@@ -66,19 +68,19 @@ export async function projectProject(projectId: string) {
       if (event.eventType === 'obstacle_identified') addValue(obstacles, payload.obstacle);
       if (event.eventType === 'obstacle_resolved') removeValue(obstacles, payload.obstacle);
       if (event.eventType === 'lifecycle_inferred') {
-        const state = stringValue(payload.state);
-        if (state !== null) lifecycleState = state;
-        lifecycleRationale = stringValue(payload.rationale);
+        const lifecycle = validateLifecyclePayload(payload);
+        lifecycleState = lifecycle.state;
+        lifecycleRationale = lifecycle.rationale;
         lifecycleOccurredAt = event.occurredAt;
       }
     }
 
     for (const correction of lifecycleCorrections) {
+      const lifecycle = validateLifecyclePayload(parsePayload(correction.payload));
+      if (correction.actor !== 'user') continue;
       if (lifecycleOccurredAt && correction.createdAt < lifecycleOccurredAt) continue;
-      const payload = parsePayload(correction.payload);
-      const state = stringValue(payload.state);
-      if (state !== null) lifecycleState = state;
-      lifecycleRationale = stringValue(payload.rationale);
+      lifecycleState = lifecycle.state;
+      lifecycleRationale = lifecycle.rationale;
       lifecycleOccurredAt = correction.createdAt;
     }
 
@@ -142,6 +144,27 @@ function parsePayload(payload: string): JsonObject {
 
 function stringValue(value: unknown) {
   return typeof value === 'string' ? value : null;
+}
+
+function validateLifecyclePayload(payload: JsonObject): {
+  state: LifecycleState;
+  rationale: string;
+} {
+  const state = stringValue(payload.state);
+  const rationale = stringValue(payload.rationale);
+  const validStates: LifecycleState[] = ['active', 'dormant', 'ended', 'archived'];
+  const keys = Object.keys(payload);
+  if (
+    !state ||
+    !validStates.includes(state as LifecycleState) ||
+    !rationale ||
+    keys.length !== 2 ||
+    !keys.includes('state') ||
+    !keys.includes('rationale')
+  ) {
+    throw new Error('Invalid lifecycle payload');
+  }
+  return { state: state as LifecycleState, rationale };
 }
 
 function addValue(values: Set<string>, value: unknown) {

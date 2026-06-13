@@ -98,6 +98,16 @@ describe('project projection', () => {
     });
   });
 
+  it.each([
+    ['invalid state', { state: 'paused', rationale: 'Not a supported lifecycle state' }],
+    ['missing rationale', { state: 'active' }],
+  ])('rejects lifecycle inference with %s', async (_description, payload) => {
+    seedEvents([event('lifecycle_inferred', payload)]);
+
+    await expect(projectProject('project-1')).rejects.toThrow('Invalid lifecycle payload');
+    expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
+  });
+
   it('reduces themes, obstacles, questions, and five newest changes deterministically', async () => {
     seedQuestion('question-1', 'Which dashboard evidence belongs here?');
     seedQuestion('question-2', 'Which dashboard evidence belongs here?');
@@ -196,6 +206,44 @@ describe('project projection rebuild', () => {
     expect(await getCurrentProjectSnapshot('project-1')).toMatchObject({ summary: 'One rebuilt' });
   });
 
+  it('checkpoints only the source event boundary included in rebuilt snapshots', async () => {
+    seedEvents([event('progress_recorded', { summary: 'At rebuild boundary' })]);
+    testDatabase.db
+      .insert(projects)
+      .values({
+        id: 'project-2',
+        summary: 'Second project',
+        createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      })
+      .run();
+
+    const rebuilding = rebuildAllProjectProjections();
+    seedEvents([event('progress_recorded', { summary: 'Inserted during rebuild' })]);
+    await rebuilding;
+
+    const snapshot = await getCurrentProjectSnapshot('project-1');
+    expect(snapshot).toMatchObject({
+      summary: 'At rebuild boundary',
+      sourceEventId: 'event-1',
+    });
+    expect(checkpoint()).toMatchObject({ status: 'completed', lastEventId: 'event-1' });
+    expect(
+      (JSON.parse(snapshot!.recentChanges) as Array<{ id: string }>).map(({ id }) => id),
+    ).toEqual(['event-1']);
+  });
+
+  it('fails rebuild when a lifecycle correction has an invalid state', async () => {
+    seedCorrection('lifecycle_state', {
+      state: 'paused',
+      rationale: 'Unsupported persisted state',
+    });
+
+    await expect(rebuildAllProjectProjections()).rejects.toThrow('Invalid lifecycle payload');
+
+    expect(checkpoint()).toMatchObject({ status: 'failed' });
+    expect(await getCurrentProjectSnapshot('project-1')).toBeNull();
+  });
+
   it('persists a failed checkpoint and rethrows when a project cannot be projected', async () => {
     seedEvents([event('progress_recorded', { summary: 'Valid' })]);
     await rebuildAllProjectProjections();
@@ -212,6 +260,11 @@ describe('project projection rebuild', () => {
         schemaVersion: 1,
       })
       .run();
+    const sourceEventsBefore = testDatabase.db
+      .select()
+      .from(projectEvents)
+      .orderBy(asc(projectEvents.id))
+      .all();
 
     await expect(rebuildAllProjectProjections()).rejects.toThrow();
 
@@ -221,6 +274,38 @@ describe('project projection rebuild', () => {
       lastEventId: 'event-1',
     });
     expect(checkpoint()?.error).toContain('JSON');
+    expect(
+      testDatabase.db.select().from(projectEvents).orderBy(asc(projectEvents.id)).all(),
+    ).toEqual(sourceEventsBefore);
+  });
+
+  it('retains merged and archived source events and snapshot history through rebuild', async () => {
+    seedEvents([
+      event('project_merged', { targetProjectId: 'project-2', rationale: 'Combined work' }),
+      event('project_archived', { rationale: 'Work concluded' }),
+    ]);
+    const sourceEventsBefore = testDatabase.db
+      .select()
+      .from(projectEvents)
+      .orderBy(asc(projectEvents.id))
+      .all();
+    await projectProject('project-1');
+
+    await rebuildAllProjectProjections();
+
+    expect(
+      testDatabase.db.select().from(projectEvents).orderBy(asc(projectEvents.id)).all(),
+    ).toEqual(sourceEventsBefore);
+    expect(
+      testDatabase.db
+        .select()
+        .from(projectSnapshots)
+        .where(eq(projectSnapshots.projectId, 'project-1'))
+        .all(),
+    ).toHaveLength(2);
+    expect(await getCurrentProjectSnapshot('project-1')).toMatchObject({
+      sourceEventId: 'event-2',
+    });
   });
 });
 

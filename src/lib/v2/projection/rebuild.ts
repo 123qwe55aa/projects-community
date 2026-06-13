@@ -1,4 +1,4 @@
-import { asc, desc } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 import { getDatabase } from '@/db';
 import { projectEvents, projectionCheckpoints, projects } from '@/db/schema';
 import { PROJECT_PROJECTION_VERSION, projectProject } from './project';
@@ -9,6 +9,13 @@ export async function rebuildAllProjectProjections() {
   writeCheckpoint({ status: 'running', error: null });
 
   try {
+    const sourceEvents = getDatabase()
+      .db.select({ id: projectEvents.id })
+      .from(projectEvents)
+      .orderBy(asc(projectEvents.occurredAt), asc(projectEvents.createdAt), asc(projectEvents.id))
+      .all();
+    const sourceEventIds = new Set(sourceEvents.map(({ id }) => id));
+    const boundaryEvent = sourceEvents.at(-1);
     const projectIds = getDatabase()
       .db.select({ id: projects.id })
       .from(projects)
@@ -16,15 +23,10 @@ export async function rebuildAllProjectProjections() {
       .all();
 
     for (const { id } of projectIds) {
-      await projectProject(id);
+      await projectProject(id, sourceEventIds);
     }
 
-    const newestEvent = getDatabase()
-      .db.select({ id: projectEvents.id })
-      .from(projectEvents)
-      .orderBy(desc(projectEvents.occurredAt), desc(projectEvents.createdAt), desc(projectEvents.id))
-      .get();
-    writeCheckpoint({ status: 'completed', lastEventId: newestEvent?.id ?? null, error: null });
+    writeCheckpoint({ status: 'completed', lastEventId: boundaryEvent?.id ?? null, error: null });
   } catch (error) {
     writeCheckpoint({
       status: 'failed',
