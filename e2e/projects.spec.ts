@@ -8,23 +8,21 @@ test.describe('Projects Page', () => {
   });
 
   test('can create a new project', async ({ page }) => {
+    const projectName = `E2E Test Project ${Date.now()}`;
     await page.goto('/projects');
 
     // Click the New Project button
     await page.getByRole('button', { name: /new project/i }).click();
 
     // Fill the form in the dialog
-    const titleInput = page.locator('input[name="title"], input[placeholder*="title" i]');
-    await titleInput.fill('E2E Test Project');
-    
     const descInput = page.locator('textarea[name="background"], textarea[placeholder*="background" i]');
-    await descInput.fill('A project created by E2E tests');
+    await descInput.fill(projectName);
 
     // Submit
     await page.getByRole('button', { name: /create/i }).click();
 
     // Wait for the new project to appear in the list
-    await expect(page.getByText('E2E Test Project')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(projectName)).toBeVisible({ timeout: 10000 });
   });
 
   test('clicking a project navigates to detail page', async ({ page }) => {
@@ -38,31 +36,34 @@ test.describe('Projects Page', () => {
     await expect(page.locator('h1')).toBeVisible();
   });
 
-  test('can delete a project while preserving its decisions', async ({ page }) => {
-    const projectName = `Delete Project ${Date.now()}`;
-    const decisionQuestion = `Preserved Decision ${Date.now()}`;
+  test('shows current snapshot and evidence timeline', async ({ page }) => {
+    await page.goto('/projects');
+    await page.locator('a[href^="/projects/"]').first().click();
+    await expect(page.getByRole('heading', { name: 'Current State' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Evidence Timeline' })).toBeVisible();
+  });
+
+  test('archives a project with rationale while preserving its detail route', async ({ page }) => {
+    const projectName = `Archive Project ${Date.now()}`;
+    const rationale = 'The work has concluded and its evidence should remain available.';
 
     await page.goto('/projects');
     await page.getByRole('button', { name: /new project/i }).click();
     await page.locator('textarea[name="background"]').fill(projectName);
     await page.getByRole('button', { name: /create project/i }).click();
     await page.getByRole('link', { name: new RegExp(projectName) }).click();
+    await page.waitForURL(/\/projects\/[^/]+$/);
+    const projectRoute = new URL(page.url()).pathname;
 
-    await page.getByRole('button', { name: /new decision/i }).click();
-    await page.locator('input[name="question"]').fill(decisionQuestion);
-    await page.getByRole('button', { name: /create decision/i }).click();
-    await expect(page.getByRole('link', { name: new RegExp(decisionQuestion) }).first()).toBeVisible();
+    const archiveRationale = page.getByLabel('Archive rationale');
+    await expect(archiveRationale).toHaveAttribute('required', '');
+    await archiveRationale.fill(rationale);
+    await page.getByRole('button', { name: 'Archive Project' }).click();
 
-    await page.getByRole('button', { name: /delete project/i }).click();
-    await expect(page.getByRole('dialog')).toContainText(projectName);
-    await page.getByRole('button', { name: /delete project/i }).last().click();
-
-    await page.waitForURL('/projects');
-    await expect(page.getByText(projectName)).toHaveCount(0);
-
-    await page.goto('/decisions');
-    const preservedDecision = page.getByRole('link', { name: new RegExp(decisionQuestion) });
-    await expect(preservedDecision).toBeVisible();
-    await expect(preservedDecision).toContainText('Independent');
+    await expect(page).toHaveURL(new RegExp(`${projectRoute}$`));
+    const currentState = page.getByLabel('Current State');
+    await expect(currentState.getByRole('heading', { name: 'Current State' })).toBeVisible();
+    await expect(currentState.getByText('archived', { exact: true })).toBeVisible();
+    await expect(currentState.getByText(rationale, { exact: true })).toBeVisible();
   });
 });
