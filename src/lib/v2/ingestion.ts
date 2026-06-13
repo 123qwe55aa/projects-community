@@ -67,7 +67,9 @@ export async function recordObservation(raw: RecordObservationInput): Promise<{
       .run();
 
     const attachedProjectId =
-      proposedProjectId && input.assignmentConfidence >= AUTO_ASSIGN_CONFIDENCE
+      proposedProjectId &&
+      input.assignmentConfidence !== undefined &&
+      input.assignmentConfidence >= AUTO_ASSIGN_CONFIDENCE
         ? proposedProjectId
         : null;
 
