@@ -8,6 +8,13 @@
       "when": 1780832869714,
       "tag": "0000_giant_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781318056253,
+      "tag": "0001_omniscient_lady_vermin",
+      "breakpoints": true
     }
   ]
 }
