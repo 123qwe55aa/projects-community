@@ -3,6 +3,8 @@ import {
   correctLifecycleAction,
   mergeProjectsAction,
 } from '@/app/v2-actions';
+import type { LifecycleState } from '@/lib/v2/queries';
+import { ProjectSubmitButton } from './ProjectSubmitButton';
 
 type GovernanceProject = {
   id: string;
@@ -13,9 +15,14 @@ type GovernanceProject = {
 export type ProjectGovernanceProps = {
   project: GovernanceProject;
   projects: GovernanceProject[];
+  currentLifecycleState: LifecycleState;
 };
 
-export function ProjectGovernance({ project, projects }: ProjectGovernanceProps) {
+export function ProjectGovernance({
+  project,
+  projects,
+  currentLifecycleState,
+}: ProjectGovernanceProps) {
   const mergeTargets = projects.filter(({ id }) => id !== project.id);
 
   return (
@@ -34,7 +41,13 @@ export function ProjectGovernance({ project, projects }: ProjectGovernanceProps)
           <form action={correctLifecycleAction} className="space-y-3">
             <input type="hidden" name="projectId" value={project.id} />
             <FieldLabel htmlFor="lifecycle-state">Lifecycle state</FieldLabel>
-            <select id="lifecycle-state" name="state" required className={fieldClasses}>
+            <select
+              id="lifecycle-state"
+              name="state"
+              required
+              defaultValue={currentLifecycleState}
+              className={fieldClasses}
+            >
               <option value="active">Active</option>
               <option value="dormant">Dormant</option>
               <option value="ended">Ended</option>
@@ -49,7 +62,7 @@ export function ProjectGovernance({ project, projects }: ProjectGovernanceProps)
               placeholder="Why is this the correct state?"
               className={fieldClasses}
             />
-            <ActionButton label="Update Lifecycle" />
+            <ProjectSubmitButton label="Update Lifecycle" pendingLabel="Updating..." />
           </form>
         </GovernanceCard>
 
@@ -77,7 +90,7 @@ export function ProjectGovernance({ project, projects }: ProjectGovernanceProps)
                 placeholder="Why should these Projects be merged?"
                 className={fieldClasses}
               />
-              <ActionButton label="Merge Project" />
+              <ProjectSubmitButton label="Merge Project" pendingLabel="Merging..." />
             </form>
           )}
         </GovernanceCard>
@@ -94,7 +107,7 @@ export function ProjectGovernance({ project, projects }: ProjectGovernanceProps)
               placeholder="Why should this Project be archived?"
               className={fieldClasses}
             />
-            <ActionButton label="Archive Project" subdued />
+            <ProjectSubmitButton label="Archive Project" pendingLabel="Archiving..." subdued />
           </form>
         </GovernanceCard>
       </div>
@@ -115,19 +128,6 @@ function GovernanceCard({ title, children }: { title: string; children: React.Re
 
 function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
   return <label htmlFor={htmlFor} className="block text-xs font-medium uppercase tracking-wide text-zinc-500">{children}</label>;
-}
-
-function ActionButton({ label, subdued = false }: { label: string; subdued?: boolean }) {
-  return (
-    <button
-      type="submit"
-      className={subdued
-        ? 'rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 transition hover:border-zinc-500'
-        : 'rounded-md bg-white px-3 py-2 text-sm font-medium text-black transition hover:bg-zinc-200'}
-    >
-      {label}
-    </button>
-  );
 }
 
 function projectName(project: GovernanceProject) {

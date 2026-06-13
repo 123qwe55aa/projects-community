@@ -17,6 +17,7 @@ import {
   getDashboardData,
   getNeedsAttention,
   getProjectHypotheses,
+  getProjectRelationships,
   getProjectTimeline,
   getRecentChanges,
 } from './queries';
@@ -264,6 +265,99 @@ describe('V2 dashboard queries', () => {
         .where(eq(projectEvents.projectId, 'project-1'))
         .all(),
     ).toHaveLength(2);
+  });
+
+  it('derives related Projects and Signals deterministically from merges and shared evidence', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values([
+        { id: 'project-3', summary: 'Project three', createdAt: date('2026-06-03') },
+        { id: 'project-4', summary: 'Project four', createdAt: date('2026-06-04') },
+      ])
+      .run();
+    testDatabase.db
+      .insert(corrections)
+      .values(projectMergeCorrection('merge-related', 'project-1', 'project-3'))
+      .run();
+    testDatabase.db
+      .insert(signals)
+      .values([
+        {
+          id: 'signal-z',
+          stableKey: 'signal:z',
+          title: 'Zeta signal',
+          description: 'Later alphabetically',
+          createdAt: date('2026-06-13'),
+          updatedAt: date('2026-06-14'),
+        },
+        {
+          id: 'signal-a',
+          stableKey: 'signal:a',
+          title: 'Alpha signal',
+          description: 'Earlier alphabetically',
+          createdAt: date('2026-06-13'),
+          updatedAt: date('2026-06-14'),
+        },
+      ])
+      .run();
+    testDatabase.db
+      .insert(signalEvidence)
+      .values([
+        { id: 'related-signal-1', signalId: 'signal-z', observationId: 'obs-hermes' },
+        { id: 'related-signal-2', signalId: 'signal-z', observationId: 'obs-attached' },
+        { id: 'related-signal-3', signalId: 'signal-z', observationId: 'obs-latest' },
+        { id: 'related-signal-4', signalId: 'signal-a', observationId: 'obs-hermes' },
+      ])
+      .run();
+    testDatabase.db
+      .insert(projectEvents)
+      .values(event('event-project-4', 'project-4', 'progress_recorded', '2026-06-13T15:00:00.000Z'))
+      .run();
+    testDatabase.db
+      .insert(eventEvidence)
+      .values({ id: 'evidence-project-4', eventId: 'event-project-4', observationId: 'obs-latest' })
+      .run();
+
+    const relationships = await getProjectRelationships('project-1');
+
+    expect(relationships.relatedProjects).toEqual([
+      {
+        projectId: 'project-4',
+        summary: 'Project four',
+        relationships: ['shared_evidence'],
+        sharedEvidenceCount: 1,
+      },
+      {
+        projectId: 'project-3',
+        summary: 'Project three',
+        relationships: ['merged'],
+        sharedEvidenceCount: 0,
+      },
+      {
+        projectId: 'project-2',
+        summary: 'Project two',
+        relationships: ['shared_evidence'],
+        sharedEvidenceCount: 1,
+      },
+    ]);
+    expect(relationships.relatedSignals).toEqual([
+      {
+        signalId: 'signal-a',
+        title: 'Alpha signal',
+        description: 'Earlier alphabetically',
+        supportingObservationCount: 1,
+      },
+      {
+        signalId: 'signal-z',
+        title: 'Zeta signal',
+        description: 'Later alphabetically',
+        supportingObservationCount: 3,
+      },
+    ]);
+    expect(await getProjectRelationships('missing')).toEqual({
+      relatedProjects: [],
+      relatedSignals: [],
+    });
   });
 });
 

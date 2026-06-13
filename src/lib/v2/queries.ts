@@ -10,6 +10,7 @@ import {
   projectSnapshots,
   projects,
   signalEvidence,
+  signals,
 } from '@/db/schema';
 
 export type LifecycleState = 'active' | 'dormant' | 'ended' | 'archived';
@@ -84,6 +85,25 @@ export type ProjectTimelineItem = {
   actor: string;
   occurredAt: string;
   evidence: EvidenceReference[];
+};
+
+export type RelatedProject = {
+  projectId: string;
+  summary: string;
+  relationships: Array<'merged' | 'shared_evidence'>;
+  sharedEvidenceCount: number;
+};
+
+export type RelatedSignal = {
+  signalId: string;
+  title: string;
+  description: string;
+  supportingObservationCount: number;
+};
+
+export type ProjectRelationships = {
+  relatedProjects: RelatedProject[];
+  relatedSignals: RelatedSignal[];
 };
 
 export async function getDashboardData(): Promise<{
@@ -314,6 +334,108 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
   }));
 }
 
+export async function getProjectRelationships(projectId: string): Promise<ProjectRelationships> {
+  const db = getDatabase().db;
+  const project = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+  if (!project) return { relatedProjects: [], relatedSignals: [] };
+
+  const mergeCorrections = await db
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    );
+  const mergedProjectIds = mergeConnectedProjectIds(projectId, mergeCorrections);
+  const visibleProjectIds = [projectId, ...mergedSourceProjectIds(projectId, mergeCorrections)];
+  const projectEvidenceRows = await db
+    .select({
+      projectId: projectEvents.projectId,
+      observationId: eventEvidence.observationId,
+    })
+    .from(eventEvidence)
+    .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
+    .where(inArray(projectEvents.projectId, visibleProjectIds));
+  const projectObservationIds = unique(projectEvidenceRows.map(({ observationId }) => observationId));
+  const matchingSignalEvidence = projectObservationIds.length
+    ? await db
+        .select()
+        .from(signalEvidence)
+        .where(inArray(signalEvidence.observationId, projectObservationIds))
+    : [];
+  const relatedSignalIds = unique(matchingSignalEvidence.map(({ signalId }) => signalId));
+  const [signalRows, allRelatedSignalEvidence] = await Promise.all([
+    relatedSignalIds.length
+      ? db.select().from(signals).where(inArray(signals.id, relatedSignalIds))
+      : Promise.resolve([]),
+    relatedSignalIds.length
+      ? db.select().from(signalEvidence).where(inArray(signalEvidence.signalId, relatedSignalIds))
+      : Promise.resolve([]),
+  ]);
+  const relatedObservationIds = unique([
+    ...projectObservationIds,
+    ...allRelatedSignalEvidence.map(({ observationId }) => observationId),
+  ]);
+  const relatedProjectEvidence = relatedObservationIds.length
+    ? await db
+        .select({
+          projectId: projectEvents.projectId,
+          observationId: eventEvidence.observationId,
+        })
+        .from(eventEvidence)
+        .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
+        .where(inArray(eventEvidence.observationId, relatedObservationIds))
+    : [];
+  const sharedEvidenceByProjectId = new Map<string, Set<string>>();
+  const visibleProjectIdSet = new Set(visibleProjectIds);
+  for (const evidence of relatedProjectEvidence) {
+    if (visibleProjectIdSet.has(evidence.projectId)) continue;
+    const observationIds = sharedEvidenceByProjectId.get(evidence.projectId) ?? new Set<string>();
+    observationIds.add(evidence.observationId);
+    sharedEvidenceByProjectId.set(evidence.projectId, observationIds);
+  }
+  const relatedProjectIds = unique([
+    ...mergedProjectIds,
+    ...sharedEvidenceByProjectId.keys(),
+  ]).filter((id) => id !== projectId);
+  const projectRows = relatedProjectIds.length
+    ? await db.select().from(projects).where(inArray(projects.id, relatedProjectIds))
+    : [];
+  const mergedProjectIdSet = new Set(mergedProjectIds);
+
+  return {
+    relatedProjects: projectRows
+      .map((relatedProject) => ({
+        projectId: relatedProject.id,
+        summary: relatedProject.summary ?? relatedProject.background ?? relatedProject.id,
+        relationships: [
+          ...(mergedProjectIdSet.has(relatedProject.id) ? ['merged' as const] : []),
+          ...(sharedEvidenceByProjectId.has(relatedProject.id) ? ['shared_evidence' as const] : []),
+        ],
+        sharedEvidenceCount: sharedEvidenceByProjectId.get(relatedProject.id)?.size ?? 0,
+      }))
+      .sort(compareRelatedProjects),
+    relatedSignals: signalRows
+      .map((signal) => ({
+        signalId: signal.id,
+        title: signal.title,
+        description: signal.description,
+        supportingObservationCount: new Set(
+          allRelatedSignalEvidence
+            .filter(({ signalId }) => signalId === signal.id)
+            .map(({ observationId }) => observationId),
+        ).size,
+      }))
+      .sort(compareRelatedSignals),
+  };
+}
+
 async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
   const db = getDatabase().db;
   const snapshotRows = await db
@@ -472,4 +594,44 @@ function mergedSourceProjectIds(
   };
   visit(targetProjectId);
   return result;
+}
+
+function mergeConnectedProjectIds(
+  projectId: string,
+  mergeCorrections: Array<typeof corrections.$inferSelect>,
+) {
+  const adjacentProjectIds = new Map<string, string[]>();
+  for (const correction of mergeCorrections) {
+    const targetId = parseObject(correction.payload).targetProjectId;
+    if (typeof targetId !== 'string' || !targetId) continue;
+    adjacentProjectIds.set(correction.targetId, [
+      ...(adjacentProjectIds.get(correction.targetId) ?? []),
+      targetId,
+    ]);
+    adjacentProjectIds.set(targetId, [
+      ...(adjacentProjectIds.get(targetId) ?? []),
+      correction.targetId,
+    ]);
+  }
+
+  const result: string[] = [];
+  const visited = new Set([projectId]);
+  const visit = (currentProjectId: string) => {
+    for (const relatedProjectId of adjacentProjectIds.get(currentProjectId) ?? []) {
+      if (visited.has(relatedProjectId)) continue;
+      visited.add(relatedProjectId);
+      result.push(relatedProjectId);
+      visit(relatedProjectId);
+    }
+  };
+  visit(projectId);
+  return result;
+}
+
+function compareRelatedProjects(left: RelatedProject, right: RelatedProject) {
+  return left.summary.localeCompare(right.summary) || left.projectId.localeCompare(right.projectId);
+}
+
+function compareRelatedSignals(left: RelatedSignal, right: RelatedSignal) {
+  return left.title.localeCompare(right.title) || left.signalId.localeCompare(right.signalId);
 }

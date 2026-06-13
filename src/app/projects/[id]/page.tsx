@@ -4,6 +4,7 @@ import { inArray } from 'drizzle-orm';
 import { AdoptionHistory } from '@/components/AdoptionHistory';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ProjectGovernance } from '@/components/v2/ProjectGovernance';
+import { ProjectRelationships } from '@/components/v2/ProjectRelationships';
 import {
   ProjectSnapshotPanel,
   type ProjectSnapshotView,
@@ -13,7 +14,11 @@ import { getDatabase } from '@/db';
 import { adoptionSnapshots, candidates, projects } from '@/db/schema';
 import { getProjectWithDecisions } from '@/db/queries';
 import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
-import { getProjectTimeline, type LifecycleState } from '@/lib/v2/queries';
+import {
+  getProjectRelationships,
+  getProjectTimeline,
+  type LifecycleState,
+} from '@/lib/v2/queries';
 
 export const metadata = {
   title: 'Project Details',
@@ -35,10 +40,11 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const { db } = getDatabase();
-  const [projectWithDecisions, snapshot, timeline] = await Promise.all([
+  const [projectWithDecisions, snapshot, timeline, relationships] = await Promise.all([
     getProjectWithDecisions(id),
     getCurrentProjectSnapshot(id),
     getProjectTimeline(id),
+    getProjectRelationships(id),
   ]);
   if (!projectWithDecisions) notFound();
 
@@ -54,6 +60,7 @@ export default async function ProjectDetailPage({
         .where(inArray(candidates.id, candidateIds))
     : [];
   const { project, decisions } = projectWithDecisions;
+  const currentSnapshot = snapshotView(snapshot);
 
   return (
     <ErrorBoundary>
@@ -75,9 +82,14 @@ export default async function ProjectDetailPage({
           </div>
         </header>
 
-        <ProjectSnapshotPanel snapshot={snapshotView(snapshot)} />
+        <ProjectSnapshotPanel snapshot={currentSnapshot} />
         <ProjectTimeline items={timeline} />
-        <ProjectGovernance project={project} projects={allProjects} />
+        <ProjectRelationships relationships={relationships} />
+        <ProjectGovernance
+          project={project}
+          projects={allProjects}
+          currentLifecycleState={currentSnapshot?.lifecycleState ?? 'active'}
+        />
 
         {decisions.length > 0 && (
           <section aria-labelledby="project-decisions-heading" className="space-y-4">
