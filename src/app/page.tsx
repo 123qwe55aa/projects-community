@@ -3,11 +3,13 @@ import { NeedsAttention } from '@/components/v2/NeedsAttention';
 import { RecentChanges } from '@/components/v2/RecentChanges';
 import { getDashboardData } from '@/lib/v2/queries';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   const data = await getDashboardData();
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-10 p-6 sm:p-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-10 p-6 sm:p-8">
       <header className="space-y-2 border-b border-zinc-800 pb-6">
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-400">
           Hermes-first project observatory
@@ -22,6 +24,6 @@ export default async function Home() {
       <CurrentProjects projects={data.currentProjects} />
       <NeedsAttention items={data.needsAttention} />
       <RecentChanges changes={data.recentChanges} />
-    </main>
+    </div>
   );
 }

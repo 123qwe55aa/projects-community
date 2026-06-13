@@ -30,6 +30,7 @@ export function NavBar() {
     >
       <Link
         href="/"
+        aria-label="Projects Community home"
         className="mr-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold text-white transition hover:text-zinc-300"
       >
         <span className="text-base" aria-hidden="true">🌱</span>

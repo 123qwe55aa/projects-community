@@ -9,7 +9,7 @@ export function NeedsAttention({ items }: { items: AttentionItem[] }) {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h2 id="needs-attention-heading" className="text-xl font-semibold text-white">
-            Needs Attention
+            Needs Attention ({items.length})
           </h2>
           <p className="mt-1 text-sm text-zinc-500">Pending observations that need a human call.</p>
         </div>
