@@ -1,4 +1,9 @@
 import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+config({ path: resolve(process.cwd(), '.env.local') });
+
 import { closeDatabase } from './index';
 import { initDatabase } from './migrate';
 import { importV1Projects } from '@/lib/v2/migration';

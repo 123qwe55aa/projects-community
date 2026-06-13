@@ -1,7 +1,7 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '@/db';
-import { projectEvents, projects } from '@/db/schema';
+import { projectEvents, projectSnapshots, projects } from '@/db/schema';
 import { projectProjectInTransaction } from './projection/project';
 
 export type V1ProjectImportResult = {
@@ -21,6 +21,7 @@ export async function importV1Projects(): Promise<V1ProjectImportResult> {
         .orderBy(asc(projects.createdAt), asc(projects.id))
         .all();
       let eventsCreated = 0;
+      let projectsProjected = 0;
 
       for (const project of existingProjects) {
         const idempotencyKey = `v2:legacy-import:${project.id}`;
@@ -29,32 +30,52 @@ export async function importV1Projects(): Promise<V1ProjectImportResult> {
           .from(projectEvents)
           .where(eq(projectEvents.idempotencyKey, idempotencyKey))
           .get();
-        if (existingEvent) continue;
+        let eventCreated = false;
+        if (!existingEvent) {
+          const occurredAt = project.updatedAt ?? project.createdAt ?? new Date();
+          const payload = legacyPayload(project);
+          tx.insert(projectEvents)
+            .values({
+              id: nanoid(),
+              projectId: project.id,
+              eventType: 'legacy_imported',
+              payload: JSON.stringify(payload),
+              rationale: 'Imported from the V1 project record.',
+              actor: 'migration',
+              idempotencyKey,
+              occurredAt,
+              createdAt: new Date(),
+              schemaVersion: 1,
+            })
+            .run();
+          eventsCreated += 1;
+          eventCreated = true;
+        }
 
-        const occurredAt = project.updatedAt ?? project.createdAt ?? new Date();
-        const payload = legacyPayload(project);
-        tx.insert(projectEvents)
-          .values({
-            id: nanoid(),
-            projectId: project.id,
-            eventType: 'legacy_imported',
-            payload: JSON.stringify(payload),
-            rationale: 'Imported from the V1 project record.',
-            actor: 'migration',
-            idempotencyKey,
-            occurredAt,
-            createdAt: new Date(),
-            schemaVersion: 1,
-          })
-          .run();
-        projectProjectInTransaction(tx, project.id);
-        eventsCreated += 1;
+        const currentSnapshot = tx
+          .select({ id: projectSnapshots.id })
+          .from(projectSnapshots)
+          .where(
+            and(
+              eq(projectSnapshots.projectId, project.id),
+              eq(projectSnapshots.isCurrent, true),
+            ),
+          )
+          .get();
+        if (eventCreated || !currentSnapshot) {
+          projectProjectInTransaction(tx, project.id);
+          tx.update(projects)
+            .set({ summary: project.summary })
+            .where(eq(projects.id, project.id))
+            .run();
+          projectsProjected += 1;
+        }
       }
 
       return {
         projectsFound: existingProjects.length,
         eventsCreated,
-        projectsProjected: eventsCreated,
+        projectsProjected,
       };
     },
     { behavior: 'immediate' },

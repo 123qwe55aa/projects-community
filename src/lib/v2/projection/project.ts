@@ -94,7 +94,12 @@ export function projectProjectInTransaction(tx: ProjectProjectionTransaction, pr
 
   for (const { event, payload } of events) {
     const eventSummary = stringValue(payload.summary);
-    if (eventSummary !== null) summary = eventSummary;
+    if (eventSummary !== null) {
+      summary =
+        event.eventType === 'legacy_imported'
+          ? eventSummary.slice(0, FIELD_MAX_LENGTH.summary)
+          : eventSummary;
+    }
 
     if (event.eventType === 'interest_increased') addValue(activeThemes, payload.theme);
     if (event.eventType === 'interest_decreased') removeValue(activeThemes, payload.theme);
@@ -224,7 +229,7 @@ function validateProjectEvent(event: typeof projectEvents.$inferSelect): JsonObj
       requireExactStringPayload(event.id, payload, ['hypothesisId']);
       break;
     case 'legacy_imported':
-      requireExactStringPayload(event.id, payload, ['summary', 'background']);
+      requireExactUnboundedStringPayload(event.id, payload, ['summary', 'background']);
       break;
     case 'decision_suggested':
       requireExactStringPayload(event.id, payload, ['question']);
@@ -251,6 +256,16 @@ function requireExactStringPayload(eventId: string, payload: JsonObject, fields:
         !keys.includes(field) ||
         !boundedString(payload[field], FIELD_MAX_LENGTH[field] ?? Number.MAX_SAFE_INTEGER),
     )
+  ) {
+    throw invalidProjectEvent(eventId, 'invalid payload');
+  }
+}
+
+function requireExactUnboundedStringPayload(eventId: string, payload: JsonObject, fields: string[]) {
+  const keys = Object.keys(payload);
+  if (
+    keys.length !== fields.length ||
+    fields.some((field) => !keys.includes(field) || !nonEmptyString(payload[field]))
   ) {
     throw invalidProjectEvent(eventId, 'invalid payload');
   }
