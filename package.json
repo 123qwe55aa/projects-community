@@ -7,13 +7,17 @@
     "build": "npm run db:seed && next build",
     "prestart": "npm run db:seed",
     "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "npx tsx src/db/bootstrap.ts",
-    "db:demo-seed": "npx tsx src/db/demo-seed.ts"
+    "db:demo-seed": "npx tsx src/db/demo-seed.ts",
+    "mcp": "tsx src/mcp/projects-community.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.12",
