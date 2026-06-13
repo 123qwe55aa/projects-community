@@ -1,7 +1,20 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createProjectsCommunityServer } from './projects-community';
+
+vi.mock('@/lib/v2/ingestion', () => ({
+  attachObservationToProject: vi.fn(async () => ({ eventId: 'event-1', deduplicated: false })),
+  recordObservation: vi.fn(async () => ({
+    observationId: 'observation-1',
+    reviewStatus: 'pending',
+    attachedProjectId: null,
+    deduplicated: false,
+  })),
+  recordProjectEvent: vi.fn(async () => ({ eventId: 'event-1', deduplicated: false })),
+  suggestDecision: vi.fn(async () => ({ eventId: 'event-1', deduplicated: false })),
+  upsertProjectHypothesis: vi.fn(async () => ({ hypothesisId: 'hypothesis-1', created: true })),
+}));
 
 const expectedSchemas = {
   record_observation: {
@@ -68,6 +81,8 @@ const expectedSchemas = {
   },
 } as const;
 
+const observedAt = '2026-06-13T10:00:00.000Z';
+
 describe('Projects Community MCP', () => {
   it('advertises complete Hermes V2 write tool schemas through tools/list', async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -115,4 +130,70 @@ describe('Projects Community MCP', () => {
       evidenceObservationIds: { type: 'array', minItems: 1, maxItems: 100 },
     });
   });
+
+  it.each([
+    {
+      name: 'an incomplete proposed assignment',
+      tool: 'record_observation',
+      arguments: {
+        idempotencyKey: 'hermes:invalid-assignment',
+        summary: 'This observation has only assignment confidence.',
+        type: 'progress',
+        sourceConversationRef: 'hermes:conversation-1',
+        sourceMessageRef: 'hermes:message-1',
+        sourceQuote: 'The assignment is incomplete.',
+        observedAt,
+        assignmentConfidence: 90,
+      },
+      expectedError: '"assignmentConfidence"',
+    },
+    {
+      name: 'an event payload that does not match its event type',
+      tool: 'record_project_event',
+      arguments: {
+        idempotencyKey: 'hermes:invalid-event-payload',
+        projectId: 'project-1',
+        evidenceObservationIds: ['observation-1'],
+        rationale: 'The payload shape belongs to a different event type.',
+        occurredAt: observedAt,
+        eventType: 'progress_recorded',
+        payload: { obstacle: 'This is not a progress summary.' },
+      },
+      expectedError: '"summary"',
+    },
+    {
+      name: 'a hypothesis without evidence',
+      tool: 'upsert_project_hypothesis',
+      arguments: {
+        idempotencyKey: 'hermes:hypothesis-without-evidence',
+        stableKey: 'hypothesis:without-evidence',
+        title: 'Unsupported hypothesis',
+        explanation: 'This hypothesis has no observation or signal evidence.',
+      },
+      expectedError: 'At least one observation or signal evidence ID is required',
+    },
+  ])(
+    'rejects wire-schema-valid but semantically invalid $name',
+    async ({ tool, arguments: toolArguments, expectedError }) => {
+      const result = await callTool(tool, toolArguments);
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        expect.objectContaining({ type: 'text', text: expect.stringContaining(expectedError) }),
+      ]);
+    },
+  );
 });
+
+async function callTool(name: string, arguments_: Record<string, unknown>) {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'projects-community-test', version: '1.0.0' });
+  const server = createProjectsCommunityServer();
+
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  try {
+    return await client.callTool({ name, arguments: arguments_ });
+  } finally {
+    await client.close();
+  }
+}
