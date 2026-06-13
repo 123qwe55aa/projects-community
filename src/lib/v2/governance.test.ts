@@ -151,6 +151,94 @@ describe('project governance', () => {
     expect(currentSnapshots('project-2')).toHaveLength(1);
   });
 
+  it('archives the source, exposes its history through the target, and treats an exact replay as a no-op', async () => {
+    await confirmObservation({ observationId: 'obs-1', projectId: 'project-1' });
+    await mergeProjects({
+      sourceProjectId: 'project-1',
+      targetProjectId: 'project-2',
+      rationale: 'These are one effort',
+    });
+    const rowCounts = governanceRowCounts();
+
+    await mergeProjects({
+      sourceProjectId: 'project-1',
+      targetProjectId: 'project-2',
+      rationale: 'Replay with a different rationale',
+    });
+
+    expect(governanceRowCounts()).toEqual(rowCounts);
+    expect(await getCurrentProjectSnapshot('project-1')).toMatchObject({
+      lifecycleState: 'archived',
+      lifecycleRationale: 'These are one effort',
+    });
+    expect(await getCurrentProjectSnapshot('project-2')).toMatchObject({
+      unresolvedQuestions: '[]',
+    });
+    expect(
+      (await getProjectTimeline('project-2')).map(({ projectId }) => projectId).sort(),
+    ).toEqual(['project-1', 'project-2']);
+    expect((await getProjectTimeline('project-2')).flatMap(({ evidence }) => evidence)).toHaveLength(
+      1,
+    );
+  });
+
+  it('prevents redirecting a merged source and rejects cycles while allowing merge chains', async () => {
+    seedProject('project-3', 'Final home');
+    await mergeProjects({
+      sourceProjectId: 'project-1',
+      targetProjectId: 'project-2',
+      rationale: 'First consolidation',
+    });
+
+    await expect(
+      mergeProjects({
+        sourceProjectId: 'project-1',
+        targetProjectId: 'project-3',
+        rationale: 'Redirect source',
+      }),
+    ).rejects.toThrow('Project project-1 is already merged into Project project-2');
+
+    await mergeProjects({
+      sourceProjectId: 'project-2',
+      targetProjectId: 'project-3',
+      rationale: 'Consolidate the chain',
+    });
+    await expect(
+      mergeProjects({
+        sourceProjectId: 'project-3',
+        targetProjectId: 'project-1',
+        rationale: 'Close the cycle',
+      }),
+    ).rejects.toThrow('Merge would create a cycle');
+    expect(testDatabase.db.select().from(corrections).all()).toHaveLength(2);
+  });
+
+  it('reprojects an existing downstream target when a new source joins its merge chain', async () => {
+    seedProject('project-3', 'Final home');
+    await mergeProjects({
+      sourceProjectId: 'project-2',
+      targetProjectId: 'project-3',
+      rationale: 'Establish final target',
+    });
+    await confirmObservation({ observationId: 'obs-1', projectId: 'project-1' });
+
+    await mergeProjects({
+      sourceProjectId: 'project-1',
+      targetProjectId: 'project-2',
+      rationale: 'Join existing chain',
+    });
+
+    expect((await getProjectTimeline('project-3')).flatMap(({ evidence }) => evidence)).toHaveLength(
+      1,
+    );
+    expect(currentSnapshots('project-3')).toHaveLength(1);
+    expect(
+      JSON.parse((await getCurrentProjectSnapshot('project-3'))!.recentChanges) as Array<{
+        projectId: string;
+      }>,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ projectId: 'project-1' })]));
+  });
+
   it('archives a project without deleting it', async () => {
     await archiveProject({ projectId: 'project-1', rationale: 'Work concluded' });
 
@@ -252,6 +340,19 @@ describe('project hypothesis governance', () => {
 
     await expect(promoteHypothesis('hypothesis-1')).resolves.toBe(projectId);
     expect(testDatabase.db.select().from(projects).all()).toHaveLength(3);
+    expect(
+      testDatabase.db
+        .select()
+        .from(corrections)
+        .where(eq(corrections.targetId, 'hypothesis-1'))
+        .all(),
+    ).toEqual([
+      expect.objectContaining({
+        targetType: 'project_hypothesis',
+        correctionType: 'hypothesis_promoted',
+        payload: JSON.stringify({ promotedProjectId: projectId }),
+      }),
+    ]);
   });
 
   it('dismisses a hypothesis through a correction and state change without deleting evidence', async () => {
@@ -382,4 +483,12 @@ function currentSnapshots(projectId: string) {
     .where(eq(projectSnapshots.projectId, projectId))
     .all()
     .filter(({ isCurrent }) => isCurrent);
+}
+
+function governanceRowCounts() {
+  return {
+    corrections: testDatabase.db.select().from(corrections).all().length,
+    events: testDatabase.db.select().from(projectEvents).all().length,
+    snapshots: testDatabase.db.select().from(projectSnapshots).all().length,
+  };
 }

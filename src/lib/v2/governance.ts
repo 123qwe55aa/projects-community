@@ -141,6 +141,23 @@ export async function mergeProjects(input: {
   getDatabase().db.transaction((tx) => {
     requireProject(tx, input.sourceProjectId);
     requireProject(tx, input.targetProjectId);
+    const mergeTargets = projectMergeTargets(tx);
+    const existingTargetId = mergeTargets.get(input.sourceProjectId);
+    if (existingTargetId === input.targetProjectId) return;
+    if (existingTargetId) {
+      throw new Error(
+        `Project ${input.sourceProjectId} is already merged into Project ${existingTargetId}`,
+      );
+    }
+    const checkedProjectIds = new Set<string>();
+    for (let projectId: string | undefined = input.targetProjectId; projectId; ) {
+      if (projectId === input.sourceProjectId) throw new Error('Merge would create a cycle');
+      if (checkedProjectIds.has(projectId)) {
+        throw new Error('Project merge corrections contain a cycle');
+      }
+      checkedProjectIds.add(projectId);
+      projectId = mergeTargets.get(projectId);
+    }
     const now = new Date();
     const payload = {
       sourceProjectId: input.sourceProjectId,
@@ -163,7 +180,15 @@ export async function mergeProjects(input: {
       createdAt: now,
     });
     projectProjectInTransaction(tx, input.sourceProjectId);
-    projectProjectInTransaction(tx, input.targetProjectId);
+    const projectedProjectIds = new Set<string>();
+    for (let projectId: string | undefined = input.targetProjectId; projectId; ) {
+      if (projectedProjectIds.has(projectId)) {
+        throw new Error('Project merge corrections contain a cycle');
+      }
+      projectedProjectIds.add(projectId);
+      projectProjectInTransaction(tx, projectId);
+      projectId = mergeTargets.get(projectId);
+    }
   });
 }
 
@@ -328,6 +353,13 @@ export async function promoteHypothesis(hypothesisId: string): Promise<string> {
         )
         .run();
     }
+    insertCorrection(tx, {
+      targetType: 'project_hypothesis',
+      targetId: hypothesisId,
+      correctionType: 'hypothesis_promoted',
+      payload: { promotedProjectId: projectId },
+      createdAt: now,
+    });
     tx.update(projectHypotheses)
       .set({ state: 'promoted', promotedProjectId: projectId })
       .where(eq(projectHypotheses.id, hypothesisId))
@@ -490,6 +522,29 @@ function hypothesisObservationIds(tx: Transaction, hypothesisId: string) {
       ...signalRows.map(({ observationId }) => observationId),
     ]),
   ];
+}
+
+function projectMergeTargets(tx: Transaction) {
+  const mergeTargets = new Map<string, string>();
+  const mergeCorrections = tx
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    )
+    .all();
+  for (const correction of mergeCorrections) {
+    const targetProjectId = requireCorrectionPayloadText(correction.payload, 'targetProjectId');
+    const existingTargetId = mergeTargets.get(correction.targetId);
+    if (existingTargetId && existingTargetId !== targetProjectId) {
+      throw new Error(`Project ${correction.targetId} has conflicting merge corrections`);
+    }
+    mergeTargets.set(correction.targetId, targetProjectId);
+  }
+  return mergeTargets;
 }
 
 function findDecisionSuggestionCorrection(

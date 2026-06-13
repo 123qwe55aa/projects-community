@@ -214,6 +214,57 @@ describe('V2 dashboard queries', () => {
     });
     expect(await getProjectTimeline('missing')).toEqual([]);
   });
+
+  it('shows transitive merged source history and evidence on the target without moving rows', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values({ id: 'project-3', summary: 'Project three', createdAt: date('2026-06-03') })
+      .run();
+    testDatabase.db
+      .insert(projectSnapshots)
+      .values(
+        snapshot('snapshot-project-3', 'project-3', 'Current third summary', true, '2026-06-14'),
+      )
+      .run();
+    testDatabase.db
+      .insert(projectEvents)
+      .values([
+        event('event-merge-1', 'project-2', 'project_merged', '2026-06-13T13:00:00.000Z'),
+        event('event-merge-2', 'project-3', 'project_merged', '2026-06-13T14:00:00.000Z'),
+      ])
+      .run();
+    testDatabase.db
+      .insert(corrections)
+      .values([
+        projectMergeCorrection('merge-1', 'project-1', 'project-2'),
+        projectMergeCorrection('merge-2', 'project-2', 'project-3'),
+      ])
+      .run();
+
+    const timeline = await getProjectTimeline('project-3');
+    const project = (await getDashboardData()).currentProjects.find(
+      ({ projectId }) => projectId === 'project-3',
+    );
+
+    expect(timeline.map(({ projectId }) => projectId)).toEqual([
+      'project-3',
+      'project-2',
+      'project-1',
+      'project-1',
+      'project-2',
+    ]);
+    expect(
+      timeline.flatMap(({ evidence }) => evidence).map(({ observationId }) => observationId),
+    ).toEqual(['obs-hermes', 'obs-attached', 'obs-hermes']);
+    expect(project?.evidenceCount).toBe(2);
+    expect(
+      testDatabase.db
+        .select()
+        .from(projectEvents)
+        .where(eq(projectEvents.projectId, 'project-1'))
+        .all(),
+    ).toHaveLength(2);
+  });
 });
 
 function seedProjectsAndSnapshots() {
@@ -375,6 +426,18 @@ function correction(id: string, targetId: string, correctionType: string) {
     payload: '{}',
     actor: 'user',
     createdAt: date('2026-06-13T12:00:00.000Z'),
+  };
+}
+
+function projectMergeCorrection(id: string, sourceProjectId: string, targetProjectId: string) {
+  return {
+    id,
+    targetType: 'project',
+    targetId: sourceProjectId,
+    correctionType: 'project_merged',
+    payload: JSON.stringify({ targetProjectId, rationale: 'Merged' }),
+    actor: 'user',
+    createdAt: date('2026-06-13T13:00:00.000Z'),
   };
 }
 

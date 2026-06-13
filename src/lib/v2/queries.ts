@@ -77,6 +77,7 @@ export type ProjectHypothesisCard = {
 
 export type ProjectTimelineItem = {
   eventId: string;
+  projectId: string;
   eventType: string;
   payload: Record<string, unknown>;
   rationale: string | null;
@@ -274,10 +275,20 @@ export async function getProjectHypotheses(): Promise<ProjectHypothesisCard[]> {
 
 export async function getProjectTimeline(projectId: string): Promise<ProjectTimelineItem[]> {
   const db = getDatabase().db;
+  const mergeCorrections = await db
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    );
+  const visibleProjectIds = [projectId, ...mergedSourceProjectIds(projectId, mergeCorrections)];
   const events = await db
     .select()
     .from(projectEvents)
-    .where(eq(projectEvents.projectId, projectId))
+    .where(inArray(projectEvents.projectId, visibleProjectIds))
     .orderBy(desc(projectEvents.occurredAt), desc(projectEvents.createdAt), desc(projectEvents.id));
   if (events.length === 0) return [];
 
@@ -293,6 +304,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
 
   return events.map((event) => ({
     eventId: event.id,
+    projectId: event.projectId,
     eventType: event.eventType,
     payload: parseObject(event.payload),
     rationale: event.rationale,
@@ -311,37 +323,56 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
     .orderBy(desc(projectSnapshots.createdAt), asc(projectSnapshots.projectId));
   if (snapshotRows.length === 0) return [];
 
-  const eventRows = await db
+  const mergeCorrections = await db
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    );
+  const allVisibleProjectIds = unique(
+    snapshotRows.flatMap(({ projectId }) => [
+      projectId,
+      ...mergedSourceProjectIds(projectId, mergeCorrections),
+    ]),
+  );
+  const visibleEventRows = await db
     .select()
     .from(projectEvents)
-    .where(inArray(projectEvents.projectId, snapshotRows.map(({ projectId }) => projectId)));
-  const evidenceRows = eventRows.length
+    .where(inArray(projectEvents.projectId, allVisibleProjectIds));
+  const evidenceRows = visibleEventRows.length
     ? await db
         .select()
         .from(eventEvidence)
-        .where(inArray(eventEvidence.eventId, eventRows.map(({ id }) => id)))
+        .where(inArray(eventEvidence.eventId, visibleEventRows.map(({ id }) => id)))
     : [];
-  const projectIdByEventId = new Map(eventRows.map((event) => [event.id, event.projectId]));
-  const evidenceByProjectId = new Map<string, Set<string>>();
-  for (const evidence of evidenceRows) {
-    const projectId = projectIdByEventId.get(evidence.eventId);
-    if (!projectId) continue;
-    const observationIds = evidenceByProjectId.get(projectId) ?? new Set<string>();
-    observationIds.add(evidence.observationId);
-    evidenceByProjectId.set(projectId, observationIds);
-  }
+  const projectIdByEventId = new Map(visibleEventRows.map((event) => [event.id, event.projectId]));
 
-  return snapshotRows.map((snapshot) => ({
-    projectId: snapshot.projectId,
-    summary: snapshot.summary,
-    lifecycleState: snapshot.lifecycleState as LifecycleState,
-    lifecycleRationale: snapshot.lifecycleRationale,
-    activeThemes: parseStringArray(snapshot.activeThemes),
-    obstacles: parseStringArray(snapshot.obstacles),
-    unresolvedQuestions: parseStringArray(snapshot.unresolvedQuestions),
-    recentChanges: parseObjectArray(snapshot.recentChanges),
-    evidenceCount: evidenceByProjectId.get(snapshot.projectId)?.size ?? 0,
-  }));
+  return snapshotRows.map((snapshot) => {
+    const visibleProjectIds = new Set([
+      snapshot.projectId,
+      ...mergedSourceProjectIds(snapshot.projectId, mergeCorrections),
+    ]);
+    const evidenceIds = new Set(
+      evidenceRows.flatMap((evidence) => {
+        const eventProjectId = projectIdByEventId.get(evidence.eventId);
+        return eventProjectId && visibleProjectIds.has(eventProjectId) ? [evidence.observationId] : [];
+      }),
+    );
+    return {
+      projectId: snapshot.projectId,
+      summary: snapshot.summary,
+      lifecycleState: snapshot.lifecycleState as LifecycleState,
+      lifecycleRationale: snapshot.lifecycleRationale,
+      activeThemes: parseStringArray(snapshot.activeThemes),
+      obstacles: parseStringArray(snapshot.obstacles),
+      unresolvedQuestions: parseStringArray(snapshot.unresolvedQuestions),
+      recentChanges: parseObjectArray(snapshot.recentChanges),
+      evidenceCount: evidenceIds.size,
+    };
+  });
 }
 
 function buildEventEvidence(
@@ -414,4 +445,31 @@ function parseJson(value: string): unknown {
 
 function unique(values: string[]) {
   return [...new Set(values)];
+}
+
+function mergedSourceProjectIds(
+  targetProjectId: string,
+  mergeCorrections: Array<typeof corrections.$inferSelect>,
+) {
+  const sourcesByTargetId = new Map<string, string[]>();
+  for (const correction of mergeCorrections) {
+    const targetId = parseObject(correction.payload).targetProjectId;
+    if (typeof targetId !== 'string' || !targetId) continue;
+    const sourceIds = sourcesByTargetId.get(targetId) ?? [];
+    sourceIds.push(correction.targetId);
+    sourcesByTargetId.set(targetId, sourceIds);
+  }
+
+  const result: string[] = [];
+  const visited = new Set([targetProjectId]);
+  const visit = (projectId: string) => {
+    for (const sourceId of sourcesByTargetId.get(projectId) ?? []) {
+      if (visited.has(sourceId)) continue;
+      visited.add(sourceId);
+      result.push(sourceId);
+      visit(sourceId);
+    }
+  };
+  visit(targetProjectId);
+  return result;
 }

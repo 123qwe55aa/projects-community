@@ -185,6 +185,63 @@ describe('project projection', () => {
     expect(snapshots.filter(({ isCurrent }) => isCurrent)).toHaveLength(1);
     expect(await getCurrentProjectSnapshot('missing')).toBeNull();
   });
+
+  it('reduces transitive merged source history into the target and keeps source ownership immutable', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values([
+        { id: 'project-2', summary: 'Middle', createdAt: new Date('2026-06-02T00:00:00.000Z') },
+        { id: 'project-3', summary: 'Target', createdAt: new Date('2026-06-03T00:00:00.000Z') },
+      ])
+      .run();
+    seedEvents([
+      event('interest_increased', { theme: 'Source theme' }),
+      event('obstacle_identified', { obstacle: 'Source obstacle' }),
+    ]);
+    seedEventsForProject('project-2', [
+      event('interest_increased', { theme: 'Middle theme' }),
+      event('project_merged', { sourceProjectId: 'project-1', targetProjectId: 'project-2' }),
+    ]);
+    seedEventsForProject('project-3', [
+      event('project_merged', { sourceProjectId: 'project-2', targetProjectId: 'project-3' }),
+    ]);
+    seedCorrection(
+      'project_merged',
+      { targetProjectId: 'project-2', rationale: 'Into middle' },
+      'user',
+      '2026-06-13T10:30:00.000Z',
+      'project-1',
+    );
+    seedCorrection(
+      'project_merged',
+      { targetProjectId: 'project-3', rationale: 'Into target' },
+      'user',
+      '2026-06-13T10:31:00.000Z',
+      'project-2',
+    );
+
+    const target = await projectProject('project-3');
+    const source = await projectProject('project-1');
+
+    expect(JSON.parse(target.activeThemes)).toEqual(['Source theme', 'Middle theme']);
+    expect(JSON.parse(target.obstacles)).toEqual(['Source obstacle']);
+    expect(
+      (JSON.parse(target.recentChanges) as Array<{ projectId: string }>).map(
+        ({ projectId }) => projectId,
+      ),
+    ).toEqual(['project-3', 'project-2', 'project-2', 'project-1', 'project-1']);
+    expect(source).toMatchObject({
+      lifecycleState: 'archived',
+      lifecycleRationale: 'Into middle',
+    });
+    expect(
+      testDatabase.db
+        .select()
+        .from(projectEvents)
+        .where(eq(projectEvents.projectId, 'project-1'))
+        .all(),
+    ).toHaveLength(2);
+  });
 });
 
 describe('project projection rebuild', () => {

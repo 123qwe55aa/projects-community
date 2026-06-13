@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase, type DB } from '@/db';
 import {
@@ -36,11 +36,13 @@ export async function projectProject(projectId: string) {
 export function projectProjectInTransaction(tx: ProjectProjectionTransaction, projectId: string) {
   const project = tx.select().from(projects).where(eq(projects.id, projectId)).get();
   if (!project) throw new Error(`Project not found: ${projectId}`);
+  const mergedProjectIds = mergedSourceProjectIds(tx, projectId);
+  const visibleProjectIds = [projectId, ...mergedProjectIds];
 
   const events = tx
     .select()
     .from(projectEvents)
-    .where(eq(projectEvents.projectId, projectId))
+    .where(inArray(projectEvents.projectId, visibleProjectIds))
     .orderBy(asc(projectEvents.occurredAt), asc(projectEvents.createdAt), asc(projectEvents.id))
     .all()
     .map((event) => ({ event, payload: validateProjectEvent(event) }));
@@ -53,7 +55,7 @@ export function projectProjectInTransaction(tx: ProjectProjectionTransaction, pr
     .from(eventEvidence)
     .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
     .innerJoin(observations, eq(eventEvidence.observationId, observations.id))
-    .where(and(eq(projectEvents.projectId, projectId), eq(observations.type, 'question')))
+    .where(and(inArray(projectEvents.projectId, visibleProjectIds), eq(observations.type, 'question')))
     .orderBy(asc(observations.observedAt), asc(observations.recordedAt), asc(observations.id))
     .all();
   const lifecycleCorrections = tx
@@ -68,6 +70,18 @@ export function projectProjectInTransaction(tx: ProjectProjectionTransaction, pr
     )
     .orderBy(asc(corrections.createdAt), asc(corrections.id))
     .all();
+  const mergeCorrection = tx
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.targetId, projectId),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    )
+    .orderBy(asc(corrections.createdAt), asc(corrections.id))
+    .get();
 
   for (const evidence of questionEvidence) validateQuestionEvidence(evidence);
 
@@ -102,12 +116,19 @@ export function projectProjectInTransaction(tx: ProjectProjectionTransaction, pr
     lifecycleRationale = lifecycle.rationale;
     lifecycleOccurredAt = correction.createdAt;
   }
+  if (mergeCorrection) {
+    const merge = validateMergeCorrection(parsePayload(mergeCorrection.payload));
+    lifecycleState = 'archived';
+    lifecycleRationale = merge.rationale;
+    lifecycleOccurredAt = mergeCorrection.createdAt;
+  }
 
   const recentChanges = events
     .slice(-5)
     .reverse()
     .map(({ event, payload }) => ({
       id: event.id,
+      projectId: event.projectId,
       eventType: event.eventType,
       payload,
       rationale: event.rationale,
@@ -272,6 +293,56 @@ function validateLifecyclePayload(payload: JsonObject): {
     throw new Error('Invalid lifecycle payload');
   }
   return { state: state as LifecycleState, rationale };
+}
+
+function validateMergeCorrection(payload: JsonObject) {
+  const targetProjectId = stringValue(payload.targetProjectId);
+  const rationale = stringValue(payload.rationale);
+  const keys = Object.keys(payload);
+  if (
+    !boundedString(targetProjectId, FIELD_MAX_LENGTH.targetProjectId) ||
+    !boundedString(rationale, FIELD_MAX_LENGTH.rationale) ||
+    keys.length !== 2 ||
+    !keys.includes('targetProjectId') ||
+    !keys.includes('rationale')
+  ) {
+    throw new Error('Invalid project merge correction');
+  }
+  return { targetProjectId, rationale };
+}
+
+function mergedSourceProjectIds(tx: ProjectProjectionTransaction, targetProjectId: string) {
+  const correctionsRows = tx
+    .select()
+    .from(corrections)
+    .where(
+      and(
+        eq(corrections.targetType, 'project'),
+        eq(corrections.correctionType, 'project_merged'),
+      ),
+    )
+    .orderBy(asc(corrections.createdAt), asc(corrections.id))
+    .all();
+  const sourcesByTargetId = new Map<string, string[]>();
+  for (const correction of correctionsRows) {
+    const { targetProjectId: targetId } = validateMergeCorrection(parsePayload(correction.payload));
+    const sourceIds = sourcesByTargetId.get(targetId) ?? [];
+    sourceIds.push(correction.targetId);
+    sourcesByTargetId.set(targetId, sourceIds);
+  }
+
+  const result: string[] = [];
+  const visited = new Set([targetProjectId]);
+  const visit = (projectId: string) => {
+    for (const sourceId of sourcesByTargetId.get(projectId) ?? []) {
+      if (visited.has(sourceId)) throw new Error('Project merge corrections contain a cycle');
+      visited.add(sourceId);
+      result.push(sourceId);
+      visit(sourceId);
+    }
+  };
+  visit(targetProjectId);
+  return result;
 }
 
 function addValue(values: Set<string>, value: unknown) {
