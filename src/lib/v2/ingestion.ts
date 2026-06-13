@@ -41,10 +41,10 @@ export async function recordObservation(raw: RecordObservationInput): Promise<{
   const input = recordObservationInput.parse(raw);
 
   return idempotentWrite('recordObservation', input.idempotencyKey, (tx) => {
-    if (input.proposedProjectId) {
-      requireProject(tx, input.proposedProjectId);
-    }
-
+    const proposedProjectId =
+      input.proposedProjectId && projectExists(tx, input.proposedProjectId)
+        ? input.proposedProjectId
+        : null;
     const observationId = nanoid();
     const recordedAt = new Date();
     tx.insert(observations)
@@ -56,7 +56,7 @@ export async function recordObservation(raw: RecordObservationInput): Promise<{
         sourceQuote: input.sourceQuote,
         sourceConversationRef: input.sourceConversationRef,
         sourceMessageRef: input.sourceMessageRef,
-        proposedProjectId: input.proposedProjectId ?? null,
+        proposedProjectId,
         assignmentConfidence: input.assignmentConfidence ?? null,
         assignmentRationale: input.assignmentRationale ?? null,
         observedAt: new Date(input.observedAt),
@@ -67,8 +67,8 @@ export async function recordObservation(raw: RecordObservationInput): Promise<{
       .run();
 
     const attachedProjectId =
-      input.proposedProjectId && input.assignmentConfidence >= AUTO_ASSIGN_CONFIDENCE
-        ? input.proposedProjectId
+      proposedProjectId && input.assignmentConfidence >= AUTO_ASSIGN_CONFIDENCE
+        ? proposedProjectId
         : null;
 
     if (attachedProjectId) {
@@ -180,7 +180,7 @@ export async function upsertProjectHypothesis(raw: UpsertProjectHypothesisInput)
           stableKey: input.stableKey,
           title: input.title,
           explanation: input.explanation,
-          state: 'active',
+          state: 'emerging',
           firstSeenAt: now,
           lastSeenAt: now,
         })
@@ -274,8 +274,13 @@ function hasDeduplicated(result: unknown): result is DeduplicatedResult {
 }
 
 function requireProject(tx: Transaction, projectId: string) {
-  const project = tx.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
-  if (!project) throw new Error(`Project not found: ${projectId}`);
+  if (!projectExists(tx, projectId)) throw new Error(`Project not found: ${projectId}`);
+}
+
+function projectExists(tx: Transaction, projectId: string) {
+  return Boolean(
+    tx.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get(),
+  );
 }
 
 function requireObservations(tx: Transaction, observationIds: string[]) {

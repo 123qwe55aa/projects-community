@@ -102,17 +102,34 @@ describe('Hermes V2 ingestion', () => {
     expect(testDatabase.db.select().from(projectEvents).get()?.idempotencyKey).toBe(idempotencyKey);
   });
 
-  it('rolls back recordObservation when its proposed project is missing', async () => {
+  it('preserves an observation as pending when its proposed project is unrecognized', async () => {
+    const result = await recordObservation({
+      ...validObservation,
+      proposedProjectId: 'missing',
+      assignmentConfidence: 100,
+      assignmentRationale: 'This still needs validation.',
+    });
+
+    expect(result).toMatchObject({ reviewStatus: 'pending', attachedProjectId: null });
+    expect(testDatabase.db.select().from(observations).get()).toMatchObject({
+      proposedProjectId: null,
+      assignmentConfidence: 100,
+      assignmentRationale: 'This still needs validation.',
+    });
+    expect(testDatabase.db.select().from(projectEvents).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(eventEvidence).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(ingestionReceipts).all()).toHaveLength(1);
+  });
+
+  it('writes nothing when an ingestion payload is schema-invalid', async () => {
     await expect(
-      recordObservation({
-        ...validObservation,
-        proposedProjectId: 'missing',
-        assignmentConfidence: 84,
-        assignmentRationale: 'This still needs validation.',
-      }),
-    ).rejects.toThrow('Project not found: missing');
+      recordObservation({ ...validObservation, unexpected: 'not allowed' } as never),
+    ).rejects.toThrow();
 
     expect(testDatabase.db.select().from(observations).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(projectEvents).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(eventEvidence).all()).toHaveLength(0);
+    expect(testDatabase.db.select().from(hypothesisEvidence).all()).toHaveLength(0);
     expect(testDatabase.db.select().from(ingestionReceipts).all()).toHaveLength(0);
   });
 
@@ -224,6 +241,7 @@ describe('Hermes V2 ingestion', () => {
     expect(testDatabase.db.select().from(projectHypotheses).get()).toMatchObject({
       title: 'Updated title',
       explanation: 'Updated explanation',
+      state: 'emerging',
     });
   });
 
