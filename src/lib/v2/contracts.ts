@@ -32,6 +32,18 @@ export const projectEventTypes = [
   'decision_confirmed',
 ] as const;
 
+export const hermesRecordableEventTypes = [
+  'progress_recorded',
+  'direction_changed',
+  'obstacle_identified',
+  'obstacle_resolved',
+  'interest_increased',
+  'interest_decreased',
+  'lifecycle_inferred',
+] as const;
+
+export type HermesRecordableEventType = (typeof hermesRecordableEventTypes)[number];
+
 const boundedId = z.string().min(1).max(200);
 const boundedReference = z.string().min(1).max(500);
 const boundedRationale = z.string().min(1).max(1000);
@@ -59,7 +71,10 @@ const eventBase = {
   occurredAt: isoDatetime,
 };
 
-const eventInput = <T extends string, P extends z.ZodTypeAny>(eventType: T, payload: P) =>
+const eventInput = <T extends HermesRecordableEventType, P extends z.ZodTypeAny>(
+  eventType: T,
+  payload: P,
+) =>
   z
     .object({
       ...eventBase,
@@ -98,8 +113,6 @@ export const recordObservationInput = z.union([
 ]);
 
 export const recordProjectEventInput = z.discriminatedUnion('eventType', [
-  eventInput('project_created', strictPayload({ summary: boundedSummary })),
-  eventInput('observation_attached', strictPayload({ observationId: boundedId })),
   eventInput('progress_recorded', strictPayload({ summary: boundedSummary })),
   eventInput('direction_changed', strictPayload({ summary: boundedSummary })),
   eventInput('obstacle_identified', strictPayload({ obstacle: boundedSummary })),
@@ -109,25 +122,6 @@ export const recordProjectEventInput = z.discriminatedUnion('eventType', [
   eventInput(
     'lifecycle_inferred',
     strictPayload({ state: lifecycleState, rationale: boundedRationale }),
-  ),
-  eventInput(
-    'lifecycle_corrected',
-    strictPayload({ state: lifecycleState, rationale: boundedRationale }),
-  ),
-  eventInput(
-    'project_merged',
-    strictPayload({ sourceProjectId: boundedId, targetProjectId: boundedId }),
-  ),
-  eventInput('project_archived', strictPayload({ rationale: boundedRationale })),
-  eventInput('hypothesis_promoted', strictPayload({ hypothesisId: boundedId })),
-  eventInput(
-    'legacy_imported',
-    strictPayload({ summary: boundedSummary, background: boundedBackground.optional() }),
-  ),
-  eventInput('decision_suggested', strictPayload({ question: boundedSummary })),
-  eventInput(
-    'decision_confirmed',
-    strictPayload({ decisionId: boundedId, question: boundedSummary }),
   ),
 ]);
 

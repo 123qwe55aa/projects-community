@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attachObservationToProjectInput,
+  hermesRecordableEventTypes,
   observationTypes,
   projectEventTypes,
   recordObservationInput,
@@ -29,9 +30,7 @@ const eventBase = {
   occurredAt: observedAt,
 } as const;
 
-const validEvents = [
-  { eventType: 'project_created', payload: { summary: 'Project created' } },
-  { eventType: 'observation_attached', payload: { observationId: 'observation-1' } },
+const validHermesEvents = [
   { eventType: 'progress_recorded', payload: { summary: 'Progress recorded' } },
   { eventType: 'direction_changed', payload: { summary: 'Direction changed' } },
   { eventType: 'obstacle_identified', payload: { obstacle: 'Missing evidence' } },
@@ -42,6 +41,11 @@ const validEvents = [
     eventType: 'lifecycle_inferred',
     payload: { state: 'active', rationale: 'Recent explicit progress' },
   },
+] as const;
+
+const excludedHermesEvents = [
+  { eventType: 'project_created', payload: { summary: 'Project created' } },
+  { eventType: 'observation_attached', payload: { observationId: 'observation-1' } },
   {
     eventType: 'lifecycle_corrected',
     payload: { state: 'dormant', rationale: 'The user paused the project' },
@@ -61,11 +65,12 @@ const validEvents = [
 ] as const;
 
 describe('V2 contracts', () => {
-  it('defines observation and lifecycle-aware project event types', () => {
+  it('defines the full internal and restricted Hermes event vocabularies', () => {
     expect(observationTypes).toContain('project_signal');
     expect(projectEventTypes).toEqual(
       expect.arrayContaining(['lifecycle_inferred', 'lifecycle_corrected', 'project_archived']),
     );
+    expect(hermesRecordableEventTypes).toEqual(validHermesEvents.map(({ eventType }) => eventType));
   });
 
   it('accepts an evidence-backed observation with a complete proposed assignment', () => {
@@ -90,10 +95,35 @@ describe('V2 contracts', () => {
     ).toThrow();
   });
 
-  it('accepts a strict projection-safe payload for every project event type', () => {
-    expect(validEvents.map(({ eventType }) => eventType)).toEqual(projectEventTypes);
-    expect(validEvents.map((event) => recordProjectEventInput.parse({ ...eventBase, ...event })))
-      .toHaveLength(projectEventTypes.length);
+  it('accepts a strict projection-safe payload for every Hermes-recordable event type', () => {
+    expect(
+      validHermesEvents.map((event) => recordProjectEventInput.parse({ ...eventBase, ...event })),
+    ).toHaveLength(hermesRecordableEventTypes.length);
+  });
+
+  it('rejects destructive, governance, and internal event types', () => {
+    for (const event of excludedHermesEvents) {
+      expect(() => recordProjectEventInput.parse({ ...eventBase, ...event })).toThrow();
+    }
+  });
+
+  it('rejects observation attachment through recordProjectEventInput and accepts the attach tool', () => {
+    expect(() =>
+      recordProjectEventInput.parse({
+        ...eventBase,
+        eventType: 'observation_attached',
+        payload: { observationId: 'observation-1' },
+      }),
+    ).toThrow();
+    expect(
+      attachObservationToProjectInput.parse({
+        idempotencyKey: 'hermes:attach-1',
+        observationId: 'observation-1',
+        projectId: 'project-1',
+        rationale: 'The observation explicitly refers to the project.',
+        occurredAt: observedAt,
+      }).observationId,
+    ).toBe('observation-1');
   });
 
   it('rejects mismatched, non-JSON, unbounded, and non-strict event payloads', () => {
