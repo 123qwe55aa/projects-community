@@ -13,6 +13,7 @@ import {
   observations,
   projectEvents,
   projectHypotheses,
+  projectImportKeys,
   projectSnapshots,
   projectionCheckpoints,
   projects,
@@ -76,6 +77,53 @@ describe('V2 schema', () => {
     expect(await db.select().from(observations)).toHaveLength(1);
     expect(await db.select().from(projectEvents)).toHaveLength(1);
     expect(await db.select().from(projectSnapshots)).toHaveLength(1);
+  });
+
+  it('enforces stable project import key constraints', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'imported-project', summary: 'Imported' }).run();
+    db.insert(projects).values({ id: 'other-project', summary: 'Other' }).run();
+    db.insert(projectImportKeys)
+      .values({
+        key: 'community-site',
+        projectId: 'imported-project',
+        contentHash: 'hash-1',
+        sourceRef: 'templates/projects.yaml',
+        createdAt: now,
+      })
+      .run();
+
+    expect(() =>
+      db
+        .insert(projectImportKeys)
+        .values({
+          key: 'community-site',
+          projectId: 'other-project',
+          contentHash: 'hash-2',
+          sourceRef: 'templates/other.yaml',
+          createdAt: now,
+        })
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db
+        .insert(projectImportKeys)
+        .values({
+          key: 'different-key',
+          projectId: 'imported-project',
+          contentHash: 'hash-1',
+          sourceRef: 'templates/projects.yaml',
+          createdAt: now,
+        })
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db.delete(projects).where(eq(projects.id, 'imported-project')).run(),
+    ).toThrow();
   });
 
   it('rejects duplicate evidence relationships', () => {
