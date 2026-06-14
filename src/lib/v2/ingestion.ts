@@ -160,14 +160,18 @@ export async function upsertProjectHypothesis(raw: UpsertProjectHypothesisInput)
   return idempotentWrite('upsertProjectHypothesis', input.idempotencyKey, (tx) => {
     const observationIds = input.observationIds ?? [];
     const signalIds = input.signalIds ?? [];
-    requireObservations(tx, observationIds);
-    requireSignals(tx, signalIds);
-
     const existing = tx
       .select()
       .from(projectHypotheses)
       .where(eq(projectHypotheses.stableKey, input.stableKey))
       .get();
+    if (existing && existing.state !== 'emerging') {
+      throw new Error(`Hypothesis ${existing.id} is ${existing.state} and cannot be updated`);
+    }
+
+    requireObservations(tx, observationIds);
+    requireSignals(tx, signalIds);
+
     const now = new Date();
     const hypothesisId = existing?.id ?? nanoid();
 

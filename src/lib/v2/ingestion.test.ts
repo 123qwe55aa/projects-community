@@ -246,6 +246,90 @@ describe('Hermes V2 ingestion', () => {
     });
   });
 
+  it.each(['promoted', 'dismissed'] as const)(
+    'rejects updates to a %s hypothesis without changing fields or evidence',
+    async (state) => {
+      seedObservation('observation-1');
+      seedObservation('observation-2');
+      const created = await upsertProjectHypothesis({
+        idempotencyKey: `hermes:${state}-hypothesis-create`,
+        stableKey: `hypothesis:${state}`,
+        title: 'Original title',
+        explanation: 'Original explanation',
+        observationIds: ['observation-1'],
+      });
+      testDatabase.db
+        .update(projectHypotheses)
+        .set({ state })
+        .where(eq(projectHypotheses.id, created.hypothesisId))
+        .run();
+      const hypothesisBefore = testDatabase.db
+        .select()
+        .from(projectHypotheses)
+        .where(eq(projectHypotheses.id, created.hypothesisId))
+        .get();
+      const evidenceBefore = testDatabase.db.select().from(hypothesisEvidence).all();
+
+      await expect(
+        upsertProjectHypothesis({
+          idempotencyKey: `hermes:${state}-hypothesis-update`,
+          stableKey: `hypothesis:${state}`,
+          title: 'Changed title',
+          explanation: 'Changed explanation',
+          observationIds: ['observation-2'],
+        }),
+      ).rejects.toThrow(`Hypothesis ${created.hypothesisId} is ${state} and cannot be updated`);
+
+      expect(
+        testDatabase.db
+          .select()
+          .from(projectHypotheses)
+          .where(eq(projectHypotheses.id, created.hypothesisId))
+          .get(),
+      ).toEqual(hypothesisBefore);
+      expect(testDatabase.db.select().from(hypothesisEvidence).all()).toEqual(evidenceBefore);
+      expect(
+        testDatabase.db
+          .select()
+          .from(ingestionReceipts)
+          .where(eq(ingestionReceipts.idempotencyKey, `hermes:${state}-hypothesis-update`))
+          .get(),
+      ).toBeUndefined();
+    },
+  );
+
+  it('replays a successful hypothesis upsert receipt after the hypothesis is promoted', async () => {
+    seedObservation('observation-1');
+    const input = {
+      idempotencyKey: 'hermes:hypothesis-before-promotion',
+      stableKey: 'hypothesis:before-promotion',
+      title: 'Original title',
+      explanation: 'Original explanation',
+      observationIds: ['observation-1'],
+    };
+    const first = await upsertProjectHypothesis(input);
+    testDatabase.db
+      .update(projectHypotheses)
+      .set({ state: 'promoted' })
+      .where(eq(projectHypotheses.id, first.hypothesisId))
+      .run();
+
+    await expect(
+      upsertProjectHypothesis({
+        ...input,
+        title: 'Ignored retry title',
+        explanation: 'Ignored retry explanation',
+      }),
+    ).resolves.toEqual(first);
+    expect(testDatabase.db.select().from(projectHypotheses).get()).toMatchObject({
+      title: input.title,
+      explanation: input.explanation,
+      state: 'promoted',
+    });
+    expect(testDatabase.db.select().from(hypothesisEvidence).all()).toHaveLength(1);
+    expect(testDatabase.db.select().from(ingestionReceipts).all()).toHaveLength(1);
+  });
+
   it('supports signal-only hypotheses and rolls back missing evidence', async () => {
     seedSignal('signal-1');
     const result = await upsertProjectHypothesis({
