@@ -205,7 +205,7 @@ export async function updateDecisionStateAction(formData: FormData) {
 export async function deleteProjectAction(projectId: string) {
   const { sqlite } = getDatabase();
   sqlite.transaction(function () {
-    const decisionRows = sqlite.prepare('SELECT id FROM decisions WHERE project_id = ?').all(projectId);
+    const decisionRows = sqlite.prepare('SELECT id FROM decisions WHERE project_id = ?').all(projectId) as { id: string }[];
     for (const row of decisionRows) {
       sqlite.prepare('DELETE FROM candidates WHERE decision_id = ?').run(row.id);
       sqlite.prepare('DELETE FROM participants WHERE decision_id = ?').run(row.id);
