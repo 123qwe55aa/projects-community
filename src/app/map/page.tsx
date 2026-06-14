@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { getMapData } from '@/db/queries';
 import { CommunityMap } from './community-map';
 import { MapLegend } from './map-legend';
@@ -83,12 +84,12 @@ async function MapContent() {
           <p className="text-zinc-500 text-sm">
             Start a project to see it grow on the map. Each decision you resolve makes your building taller.
           </p>
-          <a
+          <Link
             href="/projects"
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors"
           >
             + Start a Project
-          </a>
+          </Link>
         </div>
       </div>
     );

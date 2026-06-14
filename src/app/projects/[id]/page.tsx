@@ -1,25 +1,31 @@
-import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getDatabase } from '@/db';
-import { projects, decisions, decisionLinks, adoptionSnapshots, candidates } from '@/db/schema';
-import { eq, inArray } from 'drizzle-orm';
-import { NewDecisionForm } from './new-decision-form';
-import { ProjectSummary } from '@/components/ProjectSummary';
-import { UnresolvedQuestions } from '@/components/UnresolvedQuestions';
+import { notFound } from 'next/navigation';
+import { inArray } from 'drizzle-orm';
 import { AdoptionHistory } from '@/components/AdoptionHistory';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { DeleteEntityButton } from '@/components/DeleteEntityButton';
+import { ProjectGovernance } from '@/components/v2/ProjectGovernance';
+import { ProjectRelationships } from '@/components/v2/ProjectRelationships';
+import {
+  ProjectSnapshotPanel,
+  type ProjectSnapshotView,
+} from '@/components/v2/ProjectSnapshotPanel';
+import { ProjectTimeline } from '@/components/v2/ProjectTimeline';
+import { getDatabase } from '@/db';
+import { adoptionSnapshots, candidates } from '@/db/schema';
+import { getProjectWithDecisions } from '@/db/queries';
+import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
+import {
+  getProjectRelationships,
+  getProjectGovernanceContext,
+  getProjectTimeline,
+  type LifecycleState,
+} from '@/lib/v2/queries';
 
 export const metadata = {
   title: 'Project Details',
 };
 
-const styleLabels: Record<string, string> = {
-  workshop: '🔨 Workshop',
-  'data-center': '📊 Data Center',
-  studio: '🎨 Studio',
-  'community-hall': '🏛️ Community Hall',
-};
+export const dynamic = 'force-dynamic';
 
 const stateBadge: Record<string, { label: string; classes: string }> = {
   researching: { label: 'Researching', classes: 'bg-yellow-900/40 text-yellow-400 border-yellow-700' },
@@ -35,138 +41,129 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const { db } = getDatabase();
+  const [projectWithDecisions, snapshot, timeline, relationships, governance] = await Promise.all([
+    getProjectWithDecisions(id),
+    getCurrentProjectSnapshot(id),
+    getProjectTimeline(id),
+    getProjectRelationships(id),
+    getProjectGovernanceContext(id),
+  ]);
+  if (!projectWithDecisions) notFound();
 
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project) notFound();
-
-  // Decisions linked to this project
-  const linkedDecisions = await db
-    .select({
-      id: decisions.id,
-      question: decisions.question,
-      state: decisions.state,
-      scope: decisions.scope,
-      createdAt: decisions.createdAt,
-    })
-    .from(decisionLinks)
-    .innerJoin(decisions, eq(decisionLinks.decisionId, decisions.id))
-    .where(eq(decisionLinks.projectId, id));
-
-  // Adoption snapshots for this project
-  const snapshots = await db
+  const adoptionRows = await db
     .select()
     .from(adoptionSnapshots)
-    .where(eq(adoptionSnapshots.projectId, id));
-
-  // Candidate names for snapshot display
-  const candidateIds = [...new Set(snapshots.map((s) => s.candidateId))];
-  const snapshotCandidates =
-    candidateIds.length > 0
-      ? await db
-          .select({ id: candidates.id, name: candidates.name })
-          .from(candidates)
-          .where(inArray(candidates.id, candidateIds))
-      : [];
-
-  const totalDecisions = linkedDecisions.length;
-  const resolvedCount = linkedDecisions.filter((d) => d.state === 'decided').length;
-  const openCount = linkedDecisions.filter(
-    (d) => d.state === 'researching' || d.state === 'deferred'
-  ).length;
+    .where(inArray(adoptionSnapshots.projectId, [id]));
+  const candidateIds = [...new Set(adoptionRows.map(({ candidateId }) => candidateId))];
+  const adoptionCandidates = candidateIds.length > 0
+    ? await db
+        .select({ id: candidates.id, name: candidates.name })
+        .from(candidates)
+        .where(inArray(candidates.id, candidateIds))
+    : [];
+  const { project, decisions } = projectWithDecisions;
+  const currentSnapshot = snapshotView(snapshot);
 
   return (
     <ErrorBoundary>
-    <div className="flex flex-1 flex-col p-8 max-w-5xl mx-auto w-full space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-zinc-500">
-        <Link href="/projects" className="hover:text-zinc-300 transition">Projects</Link>
-        <span>/</span>
-        <span className="text-zinc-300">{project.summary || 'Project'}</span>
-      </div>
-
-      {/* Project Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1.5 min-w-0">
-          <h1 className="text-2xl font-bold text-white">
-            {project.summary || 'Untitled Project'}
-          </h1>
-          <div className="flex items-center gap-3 flex-wrap text-xs text-zinc-500">
-            <span className="px-2 py-0.5 rounded-full border bg-zinc-800 text-zinc-400 border-zinc-700">
-              {styleLabels[project.buildingStyle ?? ''] || project.buildingStyle}
-            </span>
-            <span className="capitalize">{project.growthStage || 'seed'} stage</span>
-            <span className="text-zinc-600">·</span>
-            <span>
-              {totalDecisions} decisions · {resolvedCount} resolved · {openCount} open
-            </span>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 p-6 sm:p-8">
+        <header className="space-y-4 border-b border-zinc-800 pb-6">
+          <div className="flex items-center gap-2 text-sm text-zinc-500">
+            <Link href="/projects" className="transition hover:text-zinc-300">Projects</Link>
+            <span>/</span>
+            <span className="truncate text-zinc-300">{projectName(project)}</span>
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Link
-            href={`/projects/${project.id}/dashboard`}
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition"
-          >
-            📊 Dashboard
-          </Link>
-          <NewDecisionForm projectId={project.id} />
-          <DeleteEntityButton
-            entityId={project.id}
-            entityName={project.summary || project.background || 'Untitled Project'}
-            entityType="project"
-          />
-        </div>
-      </div>
-
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main column */}
-        <div className="lg:col-span-2 space-y-5">
-          <ProjectSummary project={project} />
-
-          {/* All Decisions */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 space-y-3">
-            <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wide">
-              Decisions ({totalDecisions})
-            </h2>
-
-            {linkedDecisions.length === 0 ? (
-              <p className="text-sm text-zinc-500 italic">
-                No decisions yet. Add one to start structuring your choices.
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {linkedDecisions.map((decision) => {
-                  const badge = stateBadge[decision.state] || stateBadge.researching;
-                  return (
-                    <li key={decision.id}>
-                      <Link
-                        href={`/decisions/${decision.id}`}
-                        className="group flex items-center justify-between gap-3 rounded-md px-3 py-2 hover:bg-zinc-800 transition"
-                      >
-                        <span className="text-sm text-zinc-300 group-hover:text-white line-clamp-1 flex-1">
-                          {decision.question}
-                        </span>
-                        <span
-                          className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${badge.classes}`}
-                        >
-                          {badge.label}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-400">
+              Evidence-backed Project
+            </p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">{projectName(project)}</h1>
+            {project.background && project.background !== project.summary && (
+              <p className="mt-2 max-w-3xl text-sm text-zinc-400">{project.background}</p>
             )}
           </div>
-        </div>
+        </header>
+        <ProjectTimeline items={timeline} />
+        <ProjectRelationships relationships={relationships} />
+        <ProjectGovernance
+          project={project}
+          governance={governance}
+          currentLifecycleState={currentSnapshot?.lifecycleState ?? 'active'}
+        />
 
-        {/* Sidebar */}
-        <div className="space-y-5">
-          <UnresolvedQuestions decisions={linkedDecisions} />
-          <AdoptionHistory snapshots={snapshots} candidates={snapshotCandidates} />
-        </div>
-      </div>
-    </div>
+        {decisions.length > 0 && (
+          <section aria-labelledby="project-decisions-heading" className="space-y-4">
+            <h2 id="project-decisions-heading" className="text-xl font-semibold text-white">
+              Decisions ({decisions.length})
+            </h2>
+            <ul className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+              {decisions.map((decision) => {
+                const badge = stateBadge[decision.state] ?? stateBadge.researching;
+                return (
+                  <li key={decision.id}>
+                    <Link
+                      href={`/decisions/${decision.id}`}
+                      className="flex items-center justify-between gap-3 p-4 transition hover:bg-zinc-800/70"
+                    >
+                      <span className="text-sm text-zinc-200">{decision.question}</span>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${badge.classes}`}>
+                        {badge.label}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        {adoptionRows.length > 0 && (
+          <section aria-label="Project adoption history">
+            <AdoptionHistory snapshots={adoptionRows} candidates={adoptionCandidates} />
+          </section>
+        )}
+      </main>
     </ErrorBoundary>
   );
+}
+
+function snapshotView(
+  snapshot: Awaited<ReturnType<typeof getCurrentProjectSnapshot>>,
+): ProjectSnapshotView | null {
+  if (!snapshot) return null;
+  return {
+    summary: snapshot.summary,
+    lifecycleState: snapshot.lifecycleState as LifecycleState,
+    lifecycleRationale: snapshot.lifecycleRationale,
+    activeThemes: parseStringArray(snapshot.activeThemes),
+    obstacles: parseStringArray(snapshot.obstacles),
+    unresolvedQuestions: parseStringArray(snapshot.unresolvedQuestions),
+    recentChanges: parseObjectArray(snapshot.recentChanges),
+  };
+}
+
+function parseStringArray(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseObjectArray(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is Record<string, unknown> => (
+          typeof item === 'object' && item !== null && !Array.isArray(item)
+        ))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function projectName(project: { id: string; summary: string | null; background: string | null }) {
+  return project.summary ?? project.background ?? project.id;
 }
