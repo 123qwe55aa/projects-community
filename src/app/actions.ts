@@ -140,6 +140,103 @@ export async function addCandidateAction(formData: FormData) {
   return { id };
 }
 
+
+
+export async function createProjectAction(formData: FormData) {
+  const background = formData.get('background') as string | null;
+  const buildingStyle = formData.get('buildingStyle') as string | null;
+  if (!background?.trim()) throw new Error('Background is required');
+
+  const { db } = getDatabase();
+  const projectId = nanoid();
+
+  db.insert(projects).values({
+    id: projectId,
+    background: background.trim(),
+    summary: background.trim().slice(0, 120),
+    buildingStyle: buildingStyle || 'workshop',
+    growthStage: 'seed',
+    visibility: 'private',
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { projectId };
+}
+
+export async function createDecisionAction(formData: FormData) {
+  const question = formData.get('question') as string | null;
+  const scope = formData.get('scope') as string | null;
+  const projectId = formData.get('projectId') as string | null;
+  if (!question?.trim()) throw new Error('Question is required');
+
+  const { db } = getDatabase();
+  const decisionId = nanoid();
+
+  db.insert(decisions).values({
+    id: decisionId,
+    question: question.trim(),
+    state: 'researching',
+    scope: scope || 'project',
+    projectId: projectId || null,
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath('/decisions');
+  revalidatePath(`/decisions/${decisionId}`);
+  return { decisionId };
+}
+
+export async function updateDecisionStateAction(formData: FormData) {
+  const decisionId = formData.get('decisionId') as string;
+  const newState = formData.get('state') as string;
+  if (!decisionId || !newState) throw new Error('Decision ID and new state are required');
+
+  const validStates = ['researching', 'deferred', 'decided', 'archived'];
+  if (!validStates.includes(newState)) throw new Error('Invalid state');
+
+  const { db } = getDatabase();
+  db.update(decisions).set({ state: newState, updatedAt: new Date() }).where(eq(decisions.id, decisionId)).run();
+
+  revalidatePath('/decisions');
+  revalidatePath(`/decisions/${decisionId}`);
+}
+
+export async function deleteProjectAction(projectId: string) {
+  const { sqlite } = getDatabase();
+  sqlite.transaction(function () {
+    const decisionRows = sqlite.prepare('SELECT id FROM decisions WHERE project_id = ?').all(projectId);
+    for (const row of decisionRows) {
+      sqlite.prepare('DELETE FROM candidates WHERE decision_id = ?').run(row.id);
+      sqlite.prepare('DELETE FROM participants WHERE decision_id = ?').run(row.id);
+      sqlite.prepare('DELETE FROM adoption_snapshots WHERE decision_id = ?').run(row.id);
+      sqlite.prepare('DELETE FROM decision_links WHERE decision_id = ?').run(row.id);
+      sqlite.prepare('DELETE FROM recommendations WHERE decision_id = ?').run(row.id);
+    }
+    sqlite.prepare('DELETE FROM decisions WHERE project_id = ?').run(projectId);
+    sqlite.prepare('DELETE FROM participants WHERE project_id = ?').run(projectId);
+    sqlite.prepare('DELETE FROM adoption_snapshots WHERE project_id = ?').run(projectId);
+    sqlite.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+  })();
+  revalidatePath('/projects');
+  revalidatePath('/map');
+}
+
+export async function deleteDecisionAction(decisionId: string) {
+  const { sqlite } = getDatabase();
+  sqlite.transaction(function () {
+    sqlite.prepare('DELETE FROM candidates WHERE decision_id = ?').run(decisionId);
+    sqlite.prepare('DELETE FROM participants WHERE decision_id = ?').run(decisionId);
+    sqlite.prepare('DELETE FROM adoption_snapshots WHERE decision_id = ?').run(decisionId);
+    sqlite.prepare('DELETE FROM decision_links WHERE decision_id = ?').run(decisionId);
+    sqlite.prepare('DELETE FROM recommendations WHERE decision_id = ?').run(decisionId);
+    sqlite.prepare('DELETE FROM decisions WHERE id = ?').run(decisionId);
+  })();
+  revalidatePath('/decisions');
+  revalidatePath('/projects');
+  revalidatePath('/map');
+}
+
 export async function pingAction() {
   return { ok: true };
 }
