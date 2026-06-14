@@ -44,7 +44,7 @@ test.describe('Decisions Page', () => {
         await nameInput.fill('E2E Candidate');
       }
 
-      const submitBtn = page.getByRole('button', { name: /add|create|submit/i });
+      const submitBtn = page.getByRole('button', { name: 'Add Candidate', exact: true });
       if (await submitBtn.isVisible()) {
         await submitBtn.click();
         // Wait for page to update
