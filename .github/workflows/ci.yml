@@ -29,8 +29,10 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chrome
 
-      - name: Build
-        run: npm run build
+      - name: Build + seed database
+        run: |
+          npm run db:seed
+          npm run build
 
       - name: Start app
         run: |
