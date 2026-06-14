@@ -1,16 +1,21 @@
 'use server';
 
 import { nanoid } from 'nanoid';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { getDatabase } from '@/db';
 import {
   adoptionSnapshots,
   candidates,
+  conversations,
+  decisionLinks,
   decisions,
+  messages,
+  participants,
+  pins,
   projects,
+  researchJobs,
 } from '@/db/schema';
-import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
 
 export async function adoptCandidateAction(formData: FormData) {
   const decisionId = formData.get('decisionId') as string;
@@ -25,7 +30,6 @@ export async function adoptCandidateAction(formData: FormData) {
   const { sqlite } = getDatabase();
 
   const result = sqlite.transaction(function () {
-    // 1. Fetch the candidate to get its summary
     const candidateRow = sqlite
       .prepare('SELECT id, name, current_form_summary FROM candidates WHERE id = ?')
       .get(candidateId) as { id: string; name: string; current_form_summary: string | null } | undefined;
@@ -34,7 +38,6 @@ export async function adoptCandidateAction(formData: FormData) {
       throw new Error('Candidate not found');
     }
 
-    // 2. Fetch the decision to get projectId
     const decisionRow = sqlite
       .prepare('SELECT id, project_id, state FROM decisions WHERE id = ?')
       .get(decisionId) as { id: string; project_id: string | null; state: string } | undefined;
@@ -45,12 +48,10 @@ export async function adoptCandidateAction(formData: FormData) {
 
     const summary = candidateSummary?.trim() || candidateRow.current_form_summary || candidateRow.name;
 
-    // 3. Find any current adoption for this decision
     const currentAdoption = sqlite
       .prepare('SELECT id FROM adoption_snapshots WHERE decision_id = ? AND is_current = 1 LIMIT 1')
       .get(decisionId) as { id: string } | undefined;
 
-    // 4. Create new adoption snapshot
     const newSnapshotId = nanoid();
     sqlite
       .prepare(
@@ -59,25 +60,21 @@ export async function adoptCandidateAction(formData: FormData) {
       )
       .run(newSnapshotId, decisionId, candidateId, decisionRow.project_id, summary, reasoning.trim());
 
-    // 5. If there's a previous current adoption, supersede it
     if (currentAdoption) {
       sqlite
         .prepare('UPDATE adoption_snapshots SET is_current = 0, superseded_by_id = ? WHERE id = ?')
         .run(newSnapshotId, currentAdoption.id);
     }
 
-    // 6. Set decision state to 'decided'
     sqlite
       .prepare("UPDATE decisions SET state = 'decided', updated_at = datetime('now') WHERE id = ?")
       .run(decisionId);
 
-    // 7. Advance project growthStage based on number of decided decisions
     if (decisionRow.project_id) {
       const projectDecisions = sqlite
         .prepare("SELECT state FROM decisions WHERE project_id = ?")
         .all(decisionRow.project_id) as { state: string }[];
 
-      // Count currently decided (including the one we just set)
       const decidedCount =
         projectDecisions.filter((d: { state: string }) => d.state === 'decided').length + 1;
 
@@ -88,7 +85,6 @@ export async function adoptCandidateAction(formData: FormData) {
       else if (decidedCount >= 3) newStage = 'growing';
       else if (decidedCount >= 1) newStage = 'seedling';
 
-      // Only advance (never go backwards)
       const currentProject = sqlite
         .prepare('SELECT growth_stage FROM projects WHERE id = ?')
         .get(decisionRow.project_id) as { growth_stage: string } | undefined;
@@ -111,6 +107,99 @@ export async function adoptCandidateAction(formData: FormData) {
   revalidatePath('/map');
 
   return result;
+}
+
+export async function createProjectAction(formData: FormData) {
+  const background = formData.get('background') as string | null;
+  const buildingStyle = formData.get('buildingStyle') as string | null;
+
+  if (!background?.trim()) {
+    throw new Error('Background is required');
+  }
+
+  const { db } = getDatabase();
+  const projectId = nanoid();
+  const conversationId = nanoid();
+
+  db.insert(projects).values({
+    id: projectId,
+    background: background.trim(),
+    summary: background.trim().slice(0, 120),
+    buildingStyle: buildingStyle || 'workshop',
+    growthStage: 'seed',
+    visibility: 'private',
+  }).run();
+
+  db.insert(conversations).values({
+    id: conversationId,
+    contextType: 'project',
+    contextId: projectId,
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+
+  return { projectId };
+}
+
+export async function createDecisionAction(formData: FormData) {
+  const question = formData.get('question') as string | null;
+  const scope = formData.get('scope') as string | null;
+  const projectId = formData.get('projectId') as string | null;
+
+  if (!question?.trim()) {
+    throw new Error('Question is required');
+  }
+
+  const { db } = getDatabase();
+  const decisionId = nanoid();
+
+  db.insert(decisions).values({
+    id: decisionId,
+    question: question.trim(),
+    state: 'researching',
+    scope: scope || 'project',
+    projectId: projectId || null,
+  }).run();
+
+  if (projectId) {
+    db.insert(decisionLinks).values({
+      id: nanoid(),
+      projectId,
+      decisionId,
+    }).run();
+  }
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/decisions');
+  revalidatePath(`/decisions/${decisionId}`);
+
+  return { decisionId };
+}
+
+export async function updateDecisionStateAction(formData: FormData) {
+  const decisionId = formData.get('decisionId') as string;
+  const newState = formData.get('state') as string;
+
+  if (!decisionId || !newState) {
+    throw new Error('Decision ID and new state are required');
+  }
+
+  const validStates = ['researching', 'deferred', 'decided', 'archived'];
+  if (!validStates.includes(newState)) {
+    throw new Error('Invalid state');
+  }
+
+  const { db } = getDatabase();
+  db
+    .update(decisions)
+    .set({ state: newState, updatedAt: new Date() })
+    .where(eq(decisions.id, decisionId))
+    .run();
+
+  revalidatePath('/decisions');
+  revalidatePath(`/decisions/${decisionId}`);
 }
 
 export async function addCandidateAction(formData: FormData) {
@@ -138,6 +227,151 @@ export async function addCandidateAction(formData: FormData) {
   revalidatePath(`/decisions/${decisionId}/compare`);
 
   return { id };
+}
+
+export async function deleteProjectAction(projectId: string) {
+  if (!projectId?.trim()) {
+    throw new Error('Project ID is required');
+  }
+
+  const { db } = getDatabase();
+
+  db.transaction((tx) => {
+    const [project] = tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .all() as { id: string }[];
+
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const projectConversations = tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.contextType, 'project'),
+          eq(conversations.contextId, projectId),
+        ),
+      )
+      .all() as { id: string }[];
+    const conversationIds = projectConversations.map((c) => c.id);
+
+    if (conversationIds.length > 0) {
+      const conversationMessages = tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(inArray(messages.conversationId, conversationIds))
+        .all() as { id: string }[];
+      const messageIds = conversationMessages.map((m) => m.id);
+
+      if (messageIds.length > 0) {
+        tx.delete(pins).where(inArray(pins.messageId, messageIds)).run();
+      }
+      tx.delete(researchJobs).where(inArray(researchJobs.conversationId, conversationIds)).run();
+      tx.delete(messages).where(inArray(messages.conversationId, conversationIds)).run();
+      tx.delete(conversations).where(inArray(conversations.id, conversationIds)).run();
+    }
+
+    tx
+      .update(decisions)
+      .set({ projectId: null, scope: 'independent', updatedAt: new Date() })
+      .where(eq(decisions.projectId, projectId))
+      .run();
+    tx.delete(decisionLinks).where(eq(decisionLinks.projectId, projectId)).run();
+    tx
+      .update(adoptionSnapshots)
+      .set({ projectId: null })
+      .where(eq(adoptionSnapshots.projectId, projectId))
+      .run();
+    tx.delete(participants).where(eq(participants.projectId, projectId)).run();
+    tx.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+
+  revalidatePath('/projects');
+  revalidatePath('/decisions');
+  revalidatePath('/map');
+
+  return { redirectTo: '/projects' };
+}
+
+export async function deleteDecisionAction(decisionId: string) {
+  if (!decisionId?.trim()) {
+    throw new Error('Decision ID is required');
+  }
+
+  const { db } = getDatabase();
+  let redirectTo = '/decisions';
+
+  db.transaction((tx) => {
+    const [decision] = tx
+      .select({ id: decisions.id, projectId: decisions.projectId })
+      .from(decisions)
+      .where(eq(decisions.id, decisionId))
+      .all() as { id: string; projectId: string | null }[];
+
+    if (!decision) {
+      throw new Error('Decision not found');
+    }
+
+    const [link] = tx
+      .select({ projectId: decisionLinks.projectId })
+      .from(decisionLinks)
+      .where(eq(decisionLinks.decisionId, decisionId))
+      .all() as { projectId: string | null }[];
+    const projectId = decision.projectId || link?.projectId;
+    if (projectId) {
+      redirectTo = `/projects/${projectId}`;
+    }
+
+    const decisionCandidates = tx
+      .select({ id: candidates.id })
+      .from(candidates)
+      .where(eq(candidates.decisionId, decisionId))
+      .all() as { id: string }[];
+    const candidateIds = decisionCandidates.map((c) => c.id);
+
+    if (candidateIds.length > 0) {
+      const candidateConversations = tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(
+          or(
+            and(eq(conversations.contextType, 'decision'), eq(conversations.contextId, decisionId)),
+            and(eq(conversations.contextType, 'candidate'), inArray(conversations.contextId, candidateIds)),
+          ),
+        )
+        .all() as { id: string }[];
+      const conversationIds = candidateConversations.map((c) => c.id);
+
+      if (conversationIds.length > 0) {
+        const convMessages = tx
+          .select({ id: messages.id })
+          .from(messages)
+          .where(inArray(messages.conversationId, conversationIds))
+          .all() as { id: string }[];
+        const messageIds = convMessages.map((m) => m.id);
+
+        if (messageIds.length > 0) {
+          tx.delete(pins).where(inArray(pins.messageId, messageIds)).run();
+        }
+        tx.delete(messages).where(inArray(messages.conversationId, conversationIds)).run();
+        tx.delete(conversations).where(inArray(conversations.id, conversationIds)).run();
+      }
+      tx.delete(candidates).where(inArray(candidates.id, candidateIds)).run();
+    }
+
+    tx.delete(adoptionSnapshots).where(eq(adoptionSnapshots.decisionId, decisionId)).run();
+    tx.delete(decisionLinks).where(eq(decisionLinks.decisionId, decisionId)).run();
+    tx.delete(decisions).where(eq(decisions.id, decisionId)).run();
+  });
+
+  revalidatePath('/decisions');
+  revalidatePath(redirectTo);
+
+  return { redirectTo };
 }
 
 export async function pingAction() {

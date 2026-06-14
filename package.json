@@ -19,6 +19,7 @@
     "db:demo-seed": "npx tsx src/db/demo-seed.ts",
     "v2:migrate": "tsx src/db/v2-migrate.ts",
     "v2:rebuild": "tsx src/db/v2-rebuild.ts",
+    "projects:import": "tsx src/db/project-batch-import-cli.ts",
     "mcp": "tsx src/mcp/projects-community.ts"
   },
   "dependencies": {
