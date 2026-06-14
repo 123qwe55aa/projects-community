@@ -1,0 +1,14 @@
+version: 1
+projects:
+  - key: community-knowledge-map
+    summary: Map the community's projects, people, and shared interests.
+    background: Create a navigable view that helps members discover related work and potential collaborators.
+    lifecycleState: active
+    buildingStyle: community-hall
+    sourceRef: template:projects-example
+  - key: local-model-lab
+    summary: Evaluate local models for private, offline community workflows.
+    background: Compare practical model and hardware combinations, then document repeatable setups for community members.
+    lifecycleState: dormant
+    buildingStyle: data-center
+    sourceRef: template:projects-example
