@@ -11,6 +11,8 @@ export const metadata = {
   title: 'Projects',
 };
 
+export const dynamic = 'force-dynamic';
+
 async function ProjectsList() {
   const { db } = getDatabase();
 
