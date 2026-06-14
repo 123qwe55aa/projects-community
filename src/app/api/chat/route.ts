@@ -1,15 +1,14 @@
 import { NextRequest } from 'next/server';
 import { streamText } from 'ai';
 import { getDatabase } from '@/db';
-import { decisions, candidates, conversations, messages } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { decisions, candidates, messages } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { buildSystemPrompt } from '@/lib/system-prompt';
 import { getAIModel } from '@/lib/ai/provider';
 import { assembleContext } from '@/lib/ai/context-assembler';
 import { generateDecisionSummary } from '@/lib/ai/summarizer';
-
-// Load environment variables from .env.local for local development
+import { maybeCompress } from '@/lib/ai/context-compressor';
 import 'dotenv/config';
 
 export const runtime = 'nodejs';
@@ -32,7 +31,6 @@ export async function POST(req: NextRequest) {
 
     const { db } = getDatabase();
 
-    // Fetch decision
     const [decision] = await db.select().from(decisions).where(eq(decisions.id, decisionId));
     if (!decision) {
       return new Response(JSON.stringify({ error: 'Decision not found' }), {
@@ -41,42 +39,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Fetch candidates
     const decisionCandidates = await db
       .select()
       .from(candidates)
       .where(eq(candidates.decisionId, decisionId));
 
-    // Assemble context (conversation, pinned messages, recent history)
     const ctx = await assembleContext(decisionId, candidateId);
     const { conversationId } = ctx;
 
-    // Build system prompt
-    const systemPrompt = buildSystemPrompt({
-      decision,
-      candidates: decisionCandidates,
-    });
-
-    // Filter context: if candidate-scoped, narrow the candidate list
-    let scopeContext = '';
-    if (candidateId) {
-      const targetCandidate = decisionCandidates.find((c) => c.id === candidateId);
-      if (targetCandidate) {
-        scopeContext = `\n\nThe user is currently focused on a specific candidate: **${targetCandidate.name}** (ID: ${targetCandidate.id}).${targetCandidate.currentFormSummary ? ` Summary: ${targetCandidate.currentFormSummary}` : ''} Tailor your responses to this candidate while still operating within the decision's scope.`;
-      }
-    }
-
-    // Append pinned message context to system prompt if any pins exist
-    let pinnedContext = '';
-    if (ctx.pinnedMessages.length > 0) {
-      pinnedContext =
-        '\n\n## Pinned Messages (key reference points)\n' +
-        ctx.pinnedMessages
-          .map((m) => `[${m.role.toUpperCase()}]: ${m.content}`)
-          .join('\n\n');
-    }
-
-    // Save the latest user message to DB (only the last one, which is the new user message)
+    // Save latest user message to DB
     const latestUserMessage = chatMessages.filter((m) => m.role === 'user').pop();
     if (latestUserMessage) {
       await db.insert(messages).values({
@@ -88,26 +59,50 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Build AI SDK messages from the assembled recent history + client-sent messages.
-    // Prefer DB history if available; fall back to client-sent messages.
-    const historyMessages =
-      ctx.recentMessages.length > 0
-        ? ctx.recentMessages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          }))
-        : chatMessages.map((m: { role: string; content: string }) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          }));
+    // ── Build message list: DB history + current user message ──
+    const dbHistory = ctx.recentMessages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
 
-    // Stream the response
+    // Prefer client-sent messages (includes current turn), fallback to DB
+    const historyMessages =
+      chatMessages.length > 0
+        ? chatMessages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+        : dbHistory;
+
+    // ── Context Compression ──
+    const { summary: compressedSummary } = await maybeCompress(historyMessages);
+
+    // Build system prompt
+    const systemPrompt = buildSystemPrompt(
+      { decision, candidates: decisionCandidates },
+      compressedSummary || undefined,
+    );
+
+    // Candidate scope
+    let scopeContext = '';
+    if (candidateId) {
+      const targetCandidate = decisionCandidates.find((c) => c.id === candidateId);
+      if (targetCandidate) {
+        scopeContext = `\n\nThe user is focused on candidate: **${targetCandidate.name}** (ID: ${targetCandidate.id}).${targetCandidate.currentFormSummary ? ` Summary: ${targetCandidate.currentFormSummary}` : ''}`;
+      }
+    }
+
+    // Pinned messages
+    let pinnedContext = '';
+    if (ctx.pinnedMessages.length > 0) {
+      pinnedContext =
+        '\n\n## Pinned Messages\n' +
+        ctx.pinnedMessages.map((m) => `[${m.role.toUpperCase()}]: ${m.content}`).join('\n\n');
+    }
+
+    // Stream
     const result = streamText({
       model: getAIModel(),
       system: systemPrompt + scopeContext + pinnedContext,
       messages: historyMessages,
       onFinish: async ({ text }) => {
-        // Save assistant response to DB after streaming completes
         if (text) {
           await db.insert(messages).values({
             id: nanoid(),
@@ -117,21 +112,18 @@ export async function POST(req: NextRequest) {
             createdAt: new Date(),
           });
 
-          // Trigger summary refresh every 5 assistant messages (fire-and-forget)
           try {
             const allMsgs = await db
               .select({ id: messages.id })
               .from(messages)
               .where(eq(messages.conversationId, conversationId));
-            const assistantCount = allMsgs.length; // approximate; close enough for mod check
-            if (assistantCount % 5 === 0) {
-              // Non-blocking — don't await, don't let errors bubble up
+            if (allMsgs.length % 5 === 0) {
               generateDecisionSummary(decisionId).catch((err) =>
                 console.error('[/api/chat] generateDecisionSummary error:', err),
               );
             }
           } catch {
-            // Never block streaming on summary errors
+            // ignore
           }
         }
       },
@@ -140,9 +132,9 @@ export async function POST(req: NextRequest) {
     return result.toDataStreamResponse();
   } catch (error) {
     console.error('[/api/chat] Error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

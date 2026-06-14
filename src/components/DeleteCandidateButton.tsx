@@ -1,0 +1,62 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+
+export function DeleteCandidateButton({
+  candidateId,
+  candidateName,
+}: {
+  candidateId: string;
+  candidateName: string;
+}) {
+  const router = useRouter();
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleDelete() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}`, { method: 'DELETE' });
+      if (res.ok) {
+        router.refresh();
+      }
+    } catch (e) {
+      console.error('Delete failed', e);
+    } finally {
+      setLoading(false);
+      setConfirming(false);
+    }
+  }
+
+  if (!confirming) {
+    return (
+      <button
+        onClick={() => setConfirming(true)}
+        className="text-xs text-zinc-600 hover:text-red-400 transition"
+        title={`Delete ${candidateName}`}
+      >
+        ✕
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-red-400">Delete?</span>
+      <button
+        onClick={handleDelete}
+        disabled={loading}
+        className="text-xs px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
+      >
+        {loading ? '...' : 'Yes'}
+      </button>
+      <button
+        onClick={() => setConfirming(false)}
+        className="text-xs text-zinc-500 hover:text-zinc-300"
+      >
+        No
+      </button>
+    </div>
+  );
+}
