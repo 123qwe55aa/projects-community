@@ -1,0 +1,97 @@
+version: 1
+projects:
+  - key: codeisland
+    summary: CodeIsland SSH relay system — monitor Claude Code sessions remotely
+    background: |
+      CodeIsland allows monitoring remote Claude Code sessions via SSH relay.
+      Uses two relay architectures: Hook Relay (real-time control plane) and
+      Message Relay (durable data plane). Syncs session status to a Mac Menu Bar app.
+      Core challenge: handling SSH reverse tunnels and maintaining reliable
+      bi-directional communication between remote machines and the local app.
+    lifecycleState: active
+    buildingStyle: studio
+
+  - key: demon-dragon-war
+    summary: Demon Dragon War — iOS gamified task management with RPG combat
+    background: |
+      An iOS gamified task management app combining goal achievement with RPG combat.
+      Users sign "Pacts" with an Oracle, manage a Hero's poison/toxin levels, and
+      battle a Dragon that represents procrastination. Features include hero leveling,
+      streak tracking, item shop, and social features. Built with Swift.
+    lifecycleState: active
+    buildingStyle: studio
+
+  - key: xiangqi-game
+    summary: Chinese Chess (Xiangqi) AI game built with Next.js
+    background: |
+      A Chinese chess human-vs-AI game using Next.js and TypeScript.
+      Features a 10x9 board with all standard pieces (General, Advisor, Elephant,
+      Horse, Chariot, Cannon, Soldier). AI uses minimax with alpha-beta pruning
+      and piece-square tables for evaluation. Implements full game logic with
+      check and checkmate detection.
+    lifecycleState: active
+    buildingStyle: workshop
+
+  - key: job-hunter
+    summary: Job Hunter — TypeScript monorepo for automated job recommendations
+    background: |
+      A TypeScript monorepo (pnpm workspaces) that collects jobs from LinkedIn,
+      scores and ranks them, and sends daily Top 10 email recommendations.
+      Tech stack: Fastify, PostgreSQL + Prisma, Redis + BullMQ, Docker Compose.
+      Includes a cron job worker for scheduled scraping and email delivery via Mailgun.
+    lifecycleState: active
+    buildingStyle: data-center
+
+  - key: lol-stats
+    summary: LoL Stats API — League of Legends player stats and analysis
+    background: |
+      A FastAPI service providing League of Legends player statistics and analysis.
+      Uses PostgreSQL + TimescaleDB for time-series match data, Redis for caching,
+      SQLAlchemy 2.0 async ORM, and Riot Games API integration with httpx + tenacity
+      retry logic. Supports player lookup, match history, champion analytics,
+      and performance trends.
+    lifecycleState: active
+    buildingStyle: data-center
+
+  - key: multi-agent-team
+    summary: Multi-Agent Team — autonomous agent orchestration framework
+    background: |
+      An autonomous agent orchestration framework implementing a
+      PM → Coding → Testing → Audit workflow. Uses a TeamLeader state machine
+      (PLANNING → CODING → TESTING → AUDIT → FINALIZING → COMPLETE)
+      with dynamic timeout multipliers. PM uses gpt-5.2 (codex), Coding/Testing
+      use MiniMax-M2.7 (claude), Audit uses gpt-5.4 (codex).
+    lifecycleState: active
+    buildingStyle: workshop
+
+  - key: sunny-notes
+    summary: Sunny Notes — personal blog built with Next.js
+    background: |
+      A personal blog/website built with Next.js 16, TypeScript, Tailwind CSS,
+      Prisma, and SQLite. Design direction is light, calm with warm neutrals
+      and peachy accent tones. Features generous whitespace, editorial typography,
+      and sections for blog posts, updates, growth notes, and collaboration info.
+    lifecycleState: active
+    buildingStyle: studio
+
+  - key: claude-code-harness
+    summary: Provider routing refactor for Claude Code harness
+    background: |
+      Refactored the provider router and client decision logic from scattered
+      environment variable checks into a single RoutingDecision-driven architecture
+      eliminating duplicate branches. Implemented P0-P4 scope covering RoutingDecision
+      type system, multi-AZ routing strategy, auth chain-of-thought diagnostics,
+      and IAM role integration. Combined routing + auth into a new RoutingContext.
+    lifecycleState: dormant
+    buildingStyle: workshop
+
+  - key: github-architecture-research
+    summary: Architecture research notes on open-source projects
+    background: |
+      Detailed architecture analysis of open-source projects including
+      HackingTool (Python all-in-one security testing tool aggregator, 185+ tools)
+      and Warp terminal (Rust-based terminal emulator with AI assistant, 60+ crates).
+      Documents directory structure, design patterns, and architectural insights
+      for reference and learning.
+    lifecycleState: dormant
+    buildingStyle: community-hall
