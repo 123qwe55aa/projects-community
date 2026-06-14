@@ -83,6 +83,7 @@ export default async function ProjectDetailPage({
             )}
           </div>
         </header>
+        <ProjectSnapshotPanel snapshot={currentSnapshot} />
         <ProjectTimeline items={timeline} />
         <ProjectRelationships relationships={relationships} />
         <ProjectGovernance
