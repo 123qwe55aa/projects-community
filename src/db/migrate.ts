@@ -23,13 +23,18 @@ export function initDatabase() {
   }
 
   const sqlite = new Database(dbPath);
-  sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
 
-  const db = drizzle(sqlite, { schema });
+  try {
+    sqlite.pragma('journal_mode = WAL');
+    sqlite.pragma('foreign_keys = ON');
 
-  // Run migrations
-  migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    const db = drizzle(sqlite, { schema });
 
-  return { db, sqlite };
+    // Run migrations
+    migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    return { db, sqlite };
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
 }
