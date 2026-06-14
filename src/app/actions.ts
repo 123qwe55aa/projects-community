@@ -150,9 +150,9 @@ export async function adoptCandidateAction(formData: FormData) {
   const { db } = getDatabase();
 
   // Use Drizzle transaction for atomicity
-  const result = await db.transaction(async (tx) => {
+  const result = db.transaction((tx) => {
     // 1. Fetch the candidate to get its summary
-    const [candidate] = await tx
+    const [candidate] = tx
       .select()
       .from(candidates)
       .where(eq(candidates.id, candidateId));
@@ -162,7 +162,7 @@ export async function adoptCandidateAction(formData: FormData) {
     }
 
     // 2. Fetch the decision to get projectId
-    const [decision] = await tx
+    const [decision] = tx
       .select()
       .from(decisions)
       .where(eq(decisions.id, decisionId));
@@ -174,7 +174,7 @@ export async function adoptCandidateAction(formData: FormData) {
     const summary = candidateSummary?.trim() || candidate.currentFormSummary || candidate.name;
 
     // 3. Find any current adoption for this decision
-    const [currentAdoption] = await tx
+    const [currentAdoption] = tx
       .select()
       .from(adoptionSnapshots)
       .where(
@@ -186,7 +186,7 @@ export async function adoptCandidateAction(formData: FormData) {
 
     // 4. Create new adoption snapshot
     const newSnapshotId = nanoid();
-    await tx.insert(adoptionSnapshots).values({
+    tx.insert(adoptionSnapshots).values({
       id: newSnapshotId,
       decisionId,
       candidateId,
@@ -200,7 +200,7 @@ export async function adoptCandidateAction(formData: FormData) {
 
     // 5. If there's a previous current adoption, supersede it with the new snapshot's id
     if (currentAdoption) {
-      await tx
+      tx
         .update(adoptionSnapshots)
         .set({
           isCurrent: false,
@@ -210,14 +210,14 @@ export async function adoptCandidateAction(formData: FormData) {
     }
 
     // 6. Set decision state to 'decided'
-    await tx
+    tx
       .update(decisions)
       .set({ state: 'decided', updatedAt: new Date() })
       .where(eq(decisions.id, decisionId));
 
     // 7. Advance project growthStage based on number of decided decisions
     if (decision.projectId) {
-      const projectDecisions = await tx
+      const projectDecisions = tx
         .select({ state: decisions.state })
         .from(decisions)
         .where(eq(decisions.projectId, decision.projectId));
@@ -235,7 +235,7 @@ export async function adoptCandidateAction(formData: FormData) {
       else if (decidedCount >= 1) newStage = 'seedling';
 
       // Only advance (never go backwards)
-      const [currentProject] = await tx
+      const [currentProject] = tx
         .select({ growthStage: projects.growthStage })
         .from(projects)
         .where(eq(projects.id, decision.projectId));
@@ -243,7 +243,7 @@ export async function adoptCandidateAction(formData: FormData) {
       const currentIdx = stages.indexOf(currentProject?.growthStage ?? 'seed');
       const newIdx = stages.indexOf(newStage);
       if (newIdx > currentIdx) {
-        await tx
+        tx
           .update(projects)
           .set({ growthStage: newStage, updatedAt: new Date() })
           .where(eq(projects.id, decision.projectId));
