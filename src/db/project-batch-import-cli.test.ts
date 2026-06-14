@@ -1,7 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -73,7 +82,7 @@ describe('project batch import CLI', () => {
     expect(tableCount(databasePath, 'project_import_keys')).toBe(1);
   });
 
-  it('accepts --dry-run before the file and writes nothing', () => {
+  it('accepts --dry-run before the file without creating the missing real database', () => {
     const directory = temporaryDirectory();
     const databasePath = join(directory, 'dry-run.db');
     const batchPath = writeBatch(directory, 'projects.json', validProject());
@@ -82,8 +91,63 @@ describe('project batch import CLI', () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('Found: 1, created: 1, skipped: 0, dry-run: yes');
-    expect(tableCount(databasePath, 'projects')).toBe(0);
-    expect(tableCount(databasePath, 'project_import_keys')).toBe(0);
+    expect(existsSync(databasePath)).toBe(false);
+  });
+
+  it('compares an existing database during dry-run without changing its files, schema, or content', () => {
+    const directory = temporaryDirectory();
+    const databasePath = join(directory, 'existing.db');
+    const batchPath = writeBatch(directory, 'projects.json', validProject());
+    expect(runCli(databasePath, [batchPath]).status).toBe(0);
+    const before = databaseSnapshot(databasePath);
+
+    const replay = runCli(databasePath, [batchPath, '--dry-run']);
+
+    expect(replay.status, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain('Found: 1, created: 0, skipped: 1, dry-run: yes');
+    expect(databaseSnapshot(databasePath)).toEqual(before);
+  });
+
+  it('detects conflicts during dry-run without changing the existing database', () => {
+    const directory = temporaryDirectory();
+    const databasePath = join(directory, 'existing.db');
+    const originalBatch = writeBatch(directory, 'original.json', validProject());
+    const conflictBatch = writeBatch(
+      directory,
+      'conflict.json',
+      validProject({ summary: 'Changed summary' }),
+    );
+    expect(runCli(databasePath, [originalBatch]).status).toBe(0);
+    const before = databaseSnapshot(databasePath);
+
+    const conflict = runCli(databasePath, ['--dry-run', conflictBatch]);
+
+    expect(conflict.status).toBe(1);
+    expect(conflict.stderr).toContain('Project import conflict for key "project-one"');
+    expect(databaseSnapshot(databasePath)).toEqual(before);
+  });
+
+  it('compares stable keys from an existing uncheckpointed WAL during dry-run', () => {
+    const directory = temporaryDirectory();
+    const databasePath = join(directory, 'existing.db');
+    const batchPath = writeBatch(directory, 'projects.json', validProject());
+    expect(runCli(databasePath, [batchPath]).status).toBe(0);
+    const sqlite = new Database(databasePath);
+
+    try {
+      sqlite.pragma('journal_mode = WAL');
+      sqlite
+        .prepare('update project_import_keys set content_hash = ? where key = ?')
+        .run('forced-conflict-from-wal', 'project-one');
+      expect(statSync(`${databasePath}-wal`).size).toBeGreaterThan(0);
+
+      const result = runCli(databasePath, [batchPath, '--dry-run']);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Project import conflict for key "project-one"');
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('fails with usage when the file path is missing', () => {
@@ -154,3 +218,44 @@ describe('project batch import CLI', () => {
     expect(readFileSync(otherDatabasePath, 'utf8')).toBe('unchanged');
   });
 });
+
+function databaseSnapshot(databasePath: string) {
+  const directory = dirname(databasePath);
+  const basename = databasePath.slice(directory.length + 1);
+  const sourceFiles = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].map((path) => ({
+    path,
+    stat: existsSync(path) ? statSync(path) : undefined,
+  }));
+  const files = readdirSync(directory)
+    .filter((file) => file === basename || file.startsWith(`${basename}-`))
+    .sort()
+    .map((file) => {
+      const path = join(directory, file);
+      return {
+        file,
+        bytes: readFileSync(path).toString('base64'),
+        mtimeMs: statSync(path).mtimeMs,
+      };
+    });
+  const sqlite = new Database(databasePath, { readonly: true, fileMustExist: true });
+
+  try {
+    return {
+      files,
+      schema: sqlite
+        .prepare("select type, name, tbl_name, sql from sqlite_master order by type, name")
+        .all(),
+      projects: sqlite.prepare('select * from projects order by id').all(),
+      importKeys: sqlite.prepare('select * from project_import_keys order by key').all(),
+    };
+  } finally {
+    sqlite.close();
+    for (const file of sourceFiles) {
+      if (file.stat) {
+        utimesSync(file.path, file.stat.atimeMs / 1000, file.stat.mtimeMs / 1000);
+      } else {
+        rmSync(file.path, { force: true });
+      }
+    }
+  }
+}
