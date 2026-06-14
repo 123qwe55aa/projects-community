@@ -57,6 +57,60 @@ npm run v2:rebuild
 Both commands use the local SQLite database at `data/projects-community.db` unless
 `PROJECTS_COMMUNITY_DB_PATH` is set.
 
+## Batch Import Projects
+
+Use the versioned batch template to create multiple Projects from YAML or JSON. Start from
+[`templates/projects.example.yaml`](templates/projects.example.yaml) or
+[`templates/projects.example.json`](templates/projects.example.json); both examples contain the
+same two Projects.
+
+```yaml
+version: 1
+projects:
+  - key: stable-project-key
+    summary: Short description of the Project.
+    background: Context, motivation, and intended outcome.
+    lifecycleState: active
+    buildingStyle: workshop
+    sourceRef: manual:project-batch
+```
+
+The top-level object is strict and contains:
+
+- `version` (required): currently `1`.
+- `projects` (required): an array of Project objects.
+
+Each Project object is strict and supports:
+
+- `key` (required): stable, unique identifier; maximum 200 characters.
+- `summary` (required): non-empty description; maximum 1,000 characters.
+- `background` (required): non-empty context; maximum 2,000 characters.
+- `lifecycleState` (optional): `active`, `dormant`, `ended`, or `archived`; defaults to `active`.
+- `buildingStyle` (optional): `workshop`, `data-center`, `studio`, or `community-hall`; defaults to
+  `workshop`.
+- `sourceRef` (optional): non-empty source reference, maximum 500 characters; defaults to
+  `batch-import:<filename>`.
+
+Import either format with the same command:
+
+```bash
+npm run projects:import -- templates/projects.example.yaml
+npm run projects:import -- templates/projects.example.json
+```
+
+The stable `key` makes imports idempotent. Re-importing the same normalized content skips the
+existing Project. Reusing a key with changed content reports a conflict and rolls back the entire
+batch.
+
+Preview an import with `--dry-run`:
+
+```bash
+npm run projects:import -- templates/projects.example.yaml --dry-run
+```
+
+A dry run uses a temporary database snapshot for validation, comparison, and migrations. It does
+not create, migrate, or write to the configured real database.
+
 ## V1 Compatibility
 
 Existing V1 Projects remain readable. V1 Decisions, Candidate research, comparisons, adoption
@@ -83,6 +137,7 @@ npm run build
 npm run test:e2e
 npm run v2:migrate
 npm run v2:rebuild
+npm run projects:import -- templates/projects.example.yaml --dry-run
 npm run mcp
 ```
 
