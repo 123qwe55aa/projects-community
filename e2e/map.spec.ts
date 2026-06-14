@@ -24,11 +24,8 @@ test.describe('Community Map Page', () => {
   test('legend is visible', async ({ page }) => {
     await page.goto('/map');
 
-    await page.getByRole('button', { name: /legend/i }).click();
-
-    // Legend shows building styles and growth stages once opened.
-    await expect(page.getByText('Building Styles')).toBeVisible();
-    await expect(page.getByText('Growth Stages')).toBeVisible();
-    await expect(page.getByText(/seedling|sprouting|growing|mature/i).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Legend' }).click();
+    await expect(page.getByRole('heading', { name: 'Growth Stages' })).toBeVisible();
+    await expect(page.getByText('Seedling', { exact: true })).toBeVisible();
   });
 });

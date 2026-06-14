@@ -8,6 +8,48 @@
       "when": 1780832869714,
       "tag": "0000_giant_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781318056253,
+      "tag": "0001_omniscient_lady_vermin",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781331070015,
+      "tag": "0002_empty_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781331364940,
+      "tag": "0003_correction-target-guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1781331572163,
+      "tag": "0004_correction-target-delete-guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1781331756049,
+      "tag": "0005_correction-target-id-update-guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781332798415,
+      "tag": "0006_workable_angel",
+      "breakpoints": true
     }
   ]
 }
