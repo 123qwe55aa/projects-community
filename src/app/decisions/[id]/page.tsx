@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { AddCandidateForm } from './add-candidate-form';
 import { ChangeStateForm } from './change-state-form';
 import { AdoptButton } from './adopt-button';
+import { DeleteCandidateButton } from '@/components/DeleteCandidateButton';
 import { PinnedMessages } from '@/components/PinnedMessages';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -211,6 +212,8 @@ export default async function DecisionDetailPage({
                         </Link>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
+                        <DeleteCandidateButton candidateId={candidate.id} candidateName={candidate.name} />
+                        <DeleteCandidateButton candidateId={candidate.id} candidateName={candidate.name} />
                         {isAdopted ? (
                           <span className="rounded-full border border-green-700 bg-green-900/40 px-2 py-0.5 text-xs text-green-400">
                             Adopted

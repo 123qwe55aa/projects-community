@@ -4,6 +4,7 @@ import { getDatabase } from '@/db';
 import { projects, decisionLinks } from '@/db/schema';
 import { count } from 'drizzle-orm';
 import { NewProjectForm } from './new-project-form';
+import { DeleteProjectButton } from '@/components/DeleteProjectButton';
 import { ProjectsListSkeleton } from '@/components/Skeletons';
 
 export const metadata = {
@@ -69,6 +70,7 @@ async function ProjectsList() {
             <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
               {styleLabels[project.buildingStyle ?? ''] || project.buildingStyle}
             </span>
+            <DeleteProjectButton projectId={project.id} />
           </div>
           {project.background && project.background !== project.summary && (
             <p className="text-sm text-zinc-500 line-clamp-2">{project.background}</p>
