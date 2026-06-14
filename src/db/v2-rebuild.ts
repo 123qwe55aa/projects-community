@@ -1,15 +1,42 @@
 import 'dotenv/config';
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import { existsSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 config({ path: resolve(process.cwd(), '.env.local') });
 
-import { closeDatabase, getDatabase } from './index';
-import { initDatabase } from './migrate';
-import { projects } from './schema';
-import { rebuildAllProjectProjections } from '@/lib/v2/projection/rebuild';
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+function resolveDatabaseTarget() {
+  const target = process.env.PROJECTS_COMMUNITY_DB_PATH
+    ? resolve(process.cwd(), process.env.PROJECTS_COMMUNITY_DB_PATH)
+    : resolve(repositoryRoot, 'data/projects-community.db');
+
+  if (!existsSync(target)) {
+    throw new Error(`Database target does not exist: ${target}`);
+  }
+  if (!statSync(target).isFile()) {
+    throw new Error(`Database target is not a file: ${target}`);
+  }
+
+  return target;
+}
 
 async function main() {
+  const target = resolveDatabaseTarget();
+  process.env.PROJECTS_COMMUNITY_DB_PATH = target;
+  process.chdir(repositoryRoot);
+  console.log(`Database target: ${target}`);
+
+  const [{ closeDatabase, getDatabase }, { initDatabase }, { projects }, { rebuildAllProjectProjections }] =
+    await Promise.all([
+      import('./index'),
+      import('./migrate'),
+      import('./schema'),
+      import('../lib/v2/projection/rebuild'),
+    ]);
+
   const migrated = initDatabase();
   migrated.sqlite.close();
 
