@@ -220,6 +220,7 @@ export async function deleteProjectAction(projectId: string) {
   })();
   revalidatePath('/projects');
   revalidatePath('/map');
+  return { redirectTo: '/projects' };
 }
 
 export async function deleteDecisionAction(decisionId: string) {
@@ -235,6 +236,7 @@ export async function deleteDecisionAction(decisionId: string) {
   revalidatePath('/decisions');
   revalidatePath('/projects');
   revalidatePath('/map');
+  return { redirectTo: '/decisions' };
 }
 
 export async function pingAction() {
