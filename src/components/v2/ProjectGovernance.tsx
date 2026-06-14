@@ -1,9 +1,10 @@
+import Link from 'next/link';
 import {
   archiveProjectAction,
   correctLifecycleAction,
   mergeProjectsAction,
 } from '@/app/v2-actions';
-import type { LifecycleState } from '@/lib/v2/queries';
+import type { LifecycleState, ProjectGovernanceContext } from '@/lib/v2/queries';
 import { ProjectSubmitButton } from './ProjectSubmitButton';
 
 type GovernanceProject = {
@@ -14,27 +15,50 @@ type GovernanceProject = {
 
 export type ProjectGovernanceProps = {
   project: GovernanceProject;
-  projects: GovernanceProject[];
+  governance: ProjectGovernanceContext;
   currentLifecycleState: LifecycleState;
 };
 
 export function ProjectGovernance({
   project,
-  projects,
+  governance,
   currentLifecycleState,
 }: ProjectGovernanceProps) {
-  const mergeTargets = projects.filter(({ id }) => id !== project.id);
+  if (governance.isReadOnly) {
+    return (
+      <section aria-labelledby="project-governance-heading" className="space-y-4">
+        <GovernanceHeading>
+          This Project is retained as a historical source and cannot be changed.
+        </GovernanceHeading>
+        <div
+          aria-label="Read-only merged Project"
+          className="rounded-xl border border-amber-800/70 bg-amber-950/30 p-5"
+        >
+          <p className="text-sm font-semibold text-amber-300">Read-only merged Project</p>
+          <p className="mt-2 text-sm text-zinc-300">
+            Governance actions are unavailable because this Project was merged into{' '}
+            {governance.mergedIntoProject ? (
+              <Link
+                href={`/projects/${governance.mergedIntoProject.id}`}
+                className="font-medium text-emerald-300 transition hover:text-emerald-200"
+              >
+                {governance.mergedIntoProject.summary}
+              </Link>
+            ) : (
+              'another Project'
+            )}
+            .
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="project-governance-heading" className="space-y-4">
-      <div>
-        <h2 id="project-governance-heading" className="text-xl font-semibold text-white">
-          Project Governance
-        </h2>
-        <p className="mt-1 text-sm text-zinc-400">
+      <GovernanceHeading>
           Correct lifecycle state, consolidate duplicate Projects, or archive this record.
-        </p>
-      </div>
+      </GovernanceHeading>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <GovernanceCard title="Correct lifecycle">
@@ -67,7 +91,7 @@ export function ProjectGovernance({
         </GovernanceCard>
 
         <GovernanceCard title="Merge Project">
-          {mergeTargets.length === 0 ? (
+          {governance.mergeTargets.length === 0 ? (
             <p className="text-sm text-zinc-400">No other Project is available as a merge target.</p>
           ) : (
             <form action={mergeProjectsAction} className="space-y-3">
@@ -75,7 +99,7 @@ export function ProjectGovernance({
               <FieldLabel htmlFor="merge-target">Merge into</FieldLabel>
               <select id="merge-target" name="targetProjectId" required defaultValue="" className={fieldClasses}>
                 <option value="" disabled>Select a Project</option>
-                {mergeTargets.map((target) => (
+                {governance.mergeTargets.map((target) => (
                   <option key={target.id} value={target.id}>
                     {projectName(target)}
                   </option>
@@ -116,6 +140,17 @@ export function ProjectGovernance({
 }
 
 const fieldClasses = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600';
+
+function GovernanceHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div>
+      <h2 id="project-governance-heading" className="text-xl font-semibold text-white">
+        Project Governance
+      </h2>
+      <p className="mt-1 text-sm text-zinc-400">{children}</p>
+    </div>
+  );
+}
 
 function GovernanceCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (

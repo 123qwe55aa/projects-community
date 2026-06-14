@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '../src/db';
-import { projects } from '../src/db/schema';
+import { projects, signalEvidence, signals } from '../src/db/schema';
+import { mergeProjects } from '../src/lib/v2/governance';
 import { recordObservation, recordProjectEvent } from '../src/lib/v2/ingestion';
 import { projectProject } from '../src/lib/v2/projection/project';
 
@@ -69,6 +70,96 @@ test.describe('Projects Page', () => {
     await expect(page.getByLabel('Current State').getByText(correctionRationale, { exact: true })).toBeVisible();
   });
 
+  test('shows populated direct Project relationships and related Signals', async ({ page }) => {
+    const key = nanoid();
+    const projectName = `Relationship Project ${key}`;
+    const relatedProjectName = `Direct Evidence Project ${key}`;
+    const signalTitle = `Relationship Signal ${key}`;
+    const projectId = seedProject(projectName, 'Project with populated relationships.');
+    const relatedProjectId = seedProject(relatedProjectName, 'Project sharing direct evidence.');
+    const observation = await recordObservation({
+      idempotencyKey: `e2e:relationship-observation:${key}`,
+      summary: 'A direct observation connects both Projects',
+      type: 'progress',
+      sourceConversationRef: `e2e:relationship-conversation:${key}`,
+      sourceMessageRef: `e2e:relationship-message:${key}`,
+      sourceQuote: 'This observation directly supports both Projects.',
+      observedAt: new Date().toISOString(),
+    });
+    await recordProjectEvent({
+      idempotencyKey: `e2e:relationship-event:${key}:primary`,
+      projectId,
+      eventType: 'progress_recorded',
+      payload: { summary: 'Primary relationship evidence' },
+      rationale: 'Seed a populated relationship view.',
+      evidenceObservationIds: [observation.observationId],
+      occurredAt: new Date().toISOString(),
+    });
+    await recordProjectEvent({
+      idempotencyKey: `e2e:relationship-event:${key}:related`,
+      projectId: relatedProjectId,
+      eventType: 'progress_recorded',
+      payload: { summary: 'Related relationship evidence' },
+      rationale: 'Share the same direct observation.',
+      evidenceObservationIds: [observation.observationId],
+      occurredAt: new Date().toISOString(),
+    });
+    const signalId = nanoid();
+    getDatabase().db.insert(signals).values({
+      id: signalId,
+      stableKey: `e2e:relationship-signal:${key}`,
+      title: signalTitle,
+      description: 'A populated related Signal.',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).run();
+    getDatabase().db.insert(signalEvidence).values({
+      id: nanoid(),
+      signalId,
+      observationId: observation.observationId,
+    }).run();
+
+    await page.goto(`/projects/${projectId}`);
+
+    await expect(page.getByRole('link', { name: relatedProjectName })).toBeVisible();
+    await expect(page.getByText('shared evidence', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 shared evidence', { exact: true })).toBeVisible();
+    await expect(page.getByText(signalTitle, { exact: true })).toBeVisible();
+    await expect(page.getByText('1 supporting observation', { exact: true })).toBeVisible();
+  });
+
+  test('shows merged sources as read-only and excludes them from merge targets', async ({ page }) => {
+    const key = nanoid();
+    const sourceName = `Merged Source ${key}`;
+    const targetName = `Merge Destination ${key}`;
+    const writableName = `Writable Project ${key}`;
+    const sourceProjectId = seedProject(sourceName, 'Historical merged source.');
+    const targetProjectId = seedProject(targetName, 'Writable merge destination.');
+    const writableProjectId = seedProject(writableName, 'Another writable Project.');
+    await mergeProjects({
+      sourceProjectId,
+      targetProjectId,
+      rationale: 'Seed a merged read-only source for E2E.',
+    });
+
+    await page.goto(`/projects/${sourceProjectId}`);
+
+    const readOnlyStatus = page.getByLabel('Read-only merged Project');
+    await expect(readOnlyStatus).toContainText('Read-only merged Project');
+    await expect(readOnlyStatus.getByRole('link', { name: targetName })).toHaveAttribute(
+      'href',
+      `/projects/${targetProjectId}`,
+    );
+    await expect(page.getByRole('button', { name: 'Update Lifecycle' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Merge Project' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Archive Project' })).toHaveCount(0);
+
+    await page.goto(`/projects/${writableProjectId}`);
+    const mergeTargetOptions = await page.getByLabel('Merge into').locator('option').allTextContents();
+    expect(mergeTargetOptions).not.toContain(sourceName);
+    expect(mergeTargetOptions).toContain(targetName);
+  });
+
   test('archives a project with rationale while preserving its detail route', async ({ page }) => {
     const projectName = `Archive Project ${Date.now()}`;
     const rationale = 'The work has concluded and its evidence should remain available.';
@@ -95,15 +186,11 @@ test.describe('Projects Page', () => {
 });
 
 async function seedEvidenceProject() {
-  const projectId = nanoid();
   const key = nanoid();
-  getDatabase().db.insert(projects).values({
-    id: projectId,
-    summary: `Evidence Project ${key}`,
-    background: 'An E2E Project with seeded Hermes evidence.',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }).run();
+  const projectId = seedProject(
+    `Evidence Project ${key}`,
+    'An E2E Project with seeded Hermes evidence.',
+  );
   const observation = await recordObservation({
     idempotencyKey: `e2e:observation:${key}`,
     summary: 'Evidence timeline is ready',
@@ -123,5 +210,17 @@ async function seedEvidenceProject() {
     occurredAt: new Date().toISOString(),
   });
   await projectProject(projectId);
+  return projectId;
+}
+
+function seedProject(summary: string, background: string) {
+  const projectId = nanoid();
+  getDatabase().db.insert(projects).values({
+    id: projectId,
+    summary,
+    background,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }).run();
   return projectId;
 }

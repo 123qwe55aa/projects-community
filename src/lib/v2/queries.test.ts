@@ -16,6 +16,7 @@ import { createTestDatabase } from '@/test/db';
 import {
   getDashboardData,
   getNeedsAttention,
+  getProjectGovernanceContext,
   getProjectHypotheses,
   getProjectRelationships,
   getProjectTimeline,
@@ -322,12 +323,6 @@ describe('V2 dashboard queries', () => {
 
     expect(relationships.relatedProjects).toEqual([
       {
-        projectId: 'project-4',
-        summary: 'Project four',
-        relationships: ['shared_evidence'],
-        sharedEvidenceCount: 1,
-      },
-      {
         projectId: 'project-3',
         summary: 'Project three',
         relationships: ['merged'],
@@ -358,6 +353,42 @@ describe('V2 dashboard queries', () => {
       relatedProjects: [],
       relatedSignals: [],
     });
+  });
+
+  it('marks merged sources read-only and excludes every merged source from merge targets', async () => {
+    testDatabase.db
+      .insert(projects)
+      .values({ id: 'project-3', summary: 'Project three', createdAt: date('2026-06-04') })
+      .run();
+    testDatabase.db
+      .insert(corrections)
+      .values([
+        projectMergeCorrection('merge-governance-1', 'project-1', 'project-2'),
+        projectMergeCorrection('merge-governance-2', 'project-2', 'project-3'),
+      ])
+      .run();
+
+    const sourceContext = await getProjectGovernanceContext('project-1');
+    const writableContext = await getProjectGovernanceContext('project-3');
+
+    expect(sourceContext).toMatchObject({
+      isReadOnly: true,
+      mergedIntoProject: {
+        id: 'project-2',
+        summary: 'Project two',
+      },
+    });
+    expect(sourceContext.mergeTargets.map(({ id }) => id)).toEqual([
+      'project-without-snapshot',
+      'project-3',
+    ]);
+    expect(writableContext).toMatchObject({
+      isReadOnly: false,
+      mergedIntoProject: null,
+    });
+    expect(writableContext.mergeTargets.map(({ id }) => id)).toEqual([
+      'project-without-snapshot',
+    ]);
   });
 });
 

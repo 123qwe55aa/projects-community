@@ -13,7 +13,7 @@ export function ProjectRelationships({
           Relationships
         </h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Projects and Signals connected through merges and shared evidence.
+          Projects share direct evidence or merge history. Signals are related separately through supporting observations.
         </p>
       </div>
 

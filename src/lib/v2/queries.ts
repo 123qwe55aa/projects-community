@@ -106,6 +106,19 @@ export type ProjectRelationships = {
   relatedSignals: RelatedSignal[];
 };
 
+export type ProjectGovernanceContext = {
+  isReadOnly: boolean;
+  mergedIntoProject: {
+    id: string;
+    summary: string;
+  } | null;
+  mergeTargets: Array<{
+    id: string;
+    summary: string | null;
+    background: string | null;
+  }>;
+};
+
 export async function getDashboardData(): Promise<{
   currentProjects: CurrentProjectCard[];
   needsAttention: AttentionItem[];
@@ -378,11 +391,7 @@ export async function getProjectRelationships(projectId: string): Promise<Projec
       ? db.select().from(signalEvidence).where(inArray(signalEvidence.signalId, relatedSignalIds))
       : Promise.resolve([]),
   ]);
-  const relatedObservationIds = unique([
-    ...projectObservationIds,
-    ...allRelatedSignalEvidence.map(({ observationId }) => observationId),
-  ]);
-  const relatedProjectEvidence = relatedObservationIds.length
+  const relatedProjectEvidence = projectObservationIds.length
     ? await db
         .select({
           projectId: projectEvents.projectId,
@@ -390,7 +399,7 @@ export async function getProjectRelationships(projectId: string): Promise<Projec
         })
         .from(eventEvidence)
         .innerJoin(projectEvents, eq(eventEvidence.eventId, projectEvents.id))
-        .where(inArray(eventEvidence.observationId, relatedObservationIds))
+        .where(inArray(eventEvidence.observationId, projectObservationIds))
     : [];
   const sharedEvidenceByProjectId = new Map<string, Set<string>>();
   const visibleProjectIdSet = new Set(visibleProjectIds);
@@ -433,6 +442,39 @@ export async function getProjectRelationships(projectId: string): Promise<Projec
         ).size,
       }))
       .sort(compareRelatedSignals),
+  };
+}
+
+export async function getProjectGovernanceContext(projectId: string): Promise<ProjectGovernanceContext> {
+  const db = getDatabase().db;
+  const [projectRows, mergeCorrections] = await Promise.all([
+    db.select().from(projects).orderBy(projects.createdAt),
+    db
+      .select()
+      .from(corrections)
+      .where(
+        and(
+          eq(corrections.targetType, 'project'),
+          eq(corrections.correctionType, 'project_merged'),
+        ),
+      ),
+  ]);
+  const projectsById = new Map(projectRows.map((project) => [project.id, project]));
+  const mergeTargetsBySourceId = projectMergeTargetsBySourceId(mergeCorrections);
+  const mergedIntoProjectId = mergeTargetsBySourceId.get(projectId);
+  const mergedIntoProject = mergedIntoProjectId ? projectsById.get(mergedIntoProjectId) : null;
+
+  return {
+    isReadOnly: Boolean(mergedIntoProjectId),
+    mergedIntoProject: mergedIntoProjectId
+      ? {
+          id: mergedIntoProjectId,
+          summary: mergedIntoProject?.summary ?? mergedIntoProject?.background ?? mergedIntoProjectId,
+        }
+      : null,
+    mergeTargets: projectRows
+      .filter((project) => project.id !== projectId && !mergeTargetsBySourceId.has(project.id))
+      .map(({ id, summary, background }) => ({ id, summary, background })),
   };
 }
 
@@ -593,6 +635,17 @@ function mergedSourceProjectIds(
     }
   };
   visit(targetProjectId);
+  return result;
+}
+
+function projectMergeTargetsBySourceId(
+  mergeCorrections: Array<typeof corrections.$inferSelect>,
+) {
+  const result = new Map<string, string>();
+  for (const correction of mergeCorrections) {
+    const targetId = parseObject(correction.payload).targetProjectId;
+    if (typeof targetId === 'string' && targetId) result.set(correction.targetId, targetId);
+  }
   return result;
 }
 

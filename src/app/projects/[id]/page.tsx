@@ -11,11 +11,12 @@ import {
 } from '@/components/v2/ProjectSnapshotPanel';
 import { ProjectTimeline } from '@/components/v2/ProjectTimeline';
 import { getDatabase } from '@/db';
-import { adoptionSnapshots, candidates, projects } from '@/db/schema';
+import { adoptionSnapshots, candidates } from '@/db/schema';
 import { getProjectWithDecisions } from '@/db/queries';
 import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
 import {
   getProjectRelationships,
+  getProjectGovernanceContext,
   getProjectTimeline,
   type LifecycleState,
 } from '@/lib/v2/queries';
@@ -40,18 +41,19 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const { db } = getDatabase();
-  const [projectWithDecisions, snapshot, timeline, relationships] = await Promise.all([
+  const [projectWithDecisions, snapshot, timeline, relationships, governance] = await Promise.all([
     getProjectWithDecisions(id),
     getCurrentProjectSnapshot(id),
     getProjectTimeline(id),
     getProjectRelationships(id),
+    getProjectGovernanceContext(id),
   ]);
   if (!projectWithDecisions) notFound();
 
-  const [allProjects, adoptionRows] = await Promise.all([
-    db.select().from(projects).orderBy(projects.createdAt),
-    db.select().from(adoptionSnapshots).where(inArray(adoptionSnapshots.projectId, [id])),
-  ]);
+  const adoptionRows = await db
+    .select()
+    .from(adoptionSnapshots)
+    .where(inArray(adoptionSnapshots.projectId, [id]));
   const candidateIds = [...new Set(adoptionRows.map(({ candidateId }) => candidateId))];
   const adoptionCandidates = candidateIds.length > 0
     ? await db
@@ -87,7 +89,7 @@ export default async function ProjectDetailPage({
         <ProjectRelationships relationships={relationships} />
         <ProjectGovernance
           project={project}
-          projects={allProjects}
+          governance={governance}
           currentLifecycleState={currentSnapshot?.lifecycleState ?? 'active'}
         />
 
