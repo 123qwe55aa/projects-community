@@ -5,6 +5,8 @@ import { CommunityMap } from './community-map';
 import { MapLegend } from './map-legend';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Community Map',
 };
