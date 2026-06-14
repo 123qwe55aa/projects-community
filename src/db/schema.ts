@@ -31,6 +31,22 @@ export const projects = sqliteTable('projects', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
+export const projectImportKeys = sqliteTable(
+  'project_import_keys',
+  {
+    key: text('key').primaryKey(),
+    projectId: text('project_id')
+      .references(() => projects.id)
+      .notNull(),
+    contentHash: text('content_hash').notNull(),
+    sourceRef: text('source_ref').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('project_import_keys_project_id_unique').on(table.projectId),
+  ],
+);
+
 // ──────────────────────────────────────────────────
 // Decisions
 // ──────────────────────────────────────────────────
