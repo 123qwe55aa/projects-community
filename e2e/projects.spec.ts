@@ -20,12 +20,15 @@ test.describe('Projects Page', () => {
     // Click the New Project button
     await page.getByRole('button', { name: /new project/i }).click();
 
+    // Dismiss template picker — start from scratch
+    await page.getByRole('button', { name: /start from scratch/i }).click();
+
     // Fill the form in the dialog
     const descInput = page.locator('textarea[name="background"], textarea[placeholder*="background" i]');
     await descInput.fill(projectName);
 
     // Submit
-    await page.getByRole('button', { name: /create/i }).click();
+    await page.getByRole('button', { name: /create project/i }).click();
 
     // Wait for the new project to appear in the list
     await expect(page.getByText(projectName)).toBeVisible({ timeout: 10000 });
@@ -166,6 +169,7 @@ test.describe('Projects Page', () => {
 
     await page.goto('/projects');
     await page.getByRole('button', { name: /new project/i }).click();
+    await page.getByRole('button', { name: /start from scratch/i }).click();
     await page.locator('textarea[name="background"]').fill(projectName);
     await page.getByRole('button', { name: /create project/i }).click();
     await page.getByRole('link', { name: new RegExp(projectName) }).click();
