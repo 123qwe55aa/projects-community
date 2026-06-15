@@ -12,9 +12,11 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit',
 });
 
-function fmtDate(ts: number | null | undefined): string | null {
+function fmtDate(ts: string | number | null | undefined): string | null {
   if (!ts) return null;
-  return DATE_FORMAT.format(new Date(ts * 1000));
+  const d = typeof ts === 'string' ? new Date(ts) : new Date(ts * 1000);
+  if (isNaN(d.getTime())) return null;
+  return DATE_FORMAT.format(d);
 }
 
 function previewLines(text: string | null | undefined): string[] | null {
