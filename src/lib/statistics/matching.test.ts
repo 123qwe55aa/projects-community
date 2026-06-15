@@ -17,6 +17,17 @@ describe('scoreProjectMatch', () => {
     expect(match.matchReasons).toEqual(['Exact normalized name']);
   });
 
+  it('preserves Unicode letters when normalizing an exact Chinese name', () => {
+    const match = scoreProjectMatch(
+      { name: ' 项目_社区--管理器！ ', description: null },
+      { projectId: 'project-1', summary: '项目 社区 管理器', background: null },
+    );
+
+    expect(match.score).toBe(0.95);
+    expect(match.componentScores.nameToSummary).toBe(1);
+    expect(match.matchReasons).toEqual(['Exact normalized name']);
+  });
+
   it('uses the documented composite formula for description overlaps', () => {
     const match = scoreProjectMatch(
       { name: '', description: 'alpha beta' },
@@ -77,5 +88,19 @@ describe('rankProjectMatches', () => {
         ({ projectId }) => projectId,
       ),
     ).toEqual(['project-a', 'project-b', 'project-c', 'project-d', 'project-e']);
+  });
+
+  it('orders tied non-ASCII projectIds by locale-independent JavaScript string ordering', () => {
+    const projects = ['中', 'é', 'z', 'ä'].map((projectId) => ({
+      projectId,
+      summary: 'same name',
+      background: null,
+    }));
+
+    expect(
+      rankProjectMatches({ name: 'same name', description: null }, projects).map(
+        ({ projectId }) => projectId,
+      ),
+    ).toEqual(['z', 'ä', 'é', '中']);
   });
 });

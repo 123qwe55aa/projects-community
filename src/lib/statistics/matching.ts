@@ -46,7 +46,9 @@ export function rankProjectMatches(
   return projects
     .map((project) => scoreProjectMatch(repository, project))
     .filter(({ score }) => score >= MATCH_THRESHOLD)
-    .sort((left, right) => right.score - left.score || left.projectId.localeCompare(right.projectId))
+    .sort(
+      (left, right) => right.score - left.score || compareStrings(left.projectId, right.projectId),
+    )
     .slice(0, MAX_MATCHES);
 }
 
@@ -54,10 +56,14 @@ function normalizeText(value: string | null): string {
   return value
     ? value
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim()
         .replace(/\s+/g, ' ')
     : '';
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function jaccardSimilarity(left: string, right: string): number {
