@@ -11,6 +11,7 @@ RUN npm ci --omit=dev
 
 COPY .next ./.next
 COPY public ./public
+COPY src ./src
 COPY drizzle.config.ts ./
 COPY drizzle ./drizzle
 
