@@ -237,6 +237,8 @@ function input(overrides: Partial<NormalizedProjectImport> = {}): NormalizedProj
     lifecycleState: 'active',
     buildingStyle: 'workshop',
     sourceRef: 'template:projects.yaml',
+    imageUrl: null,
+    deployUrl: null,
     ...overrides,
   };
 }

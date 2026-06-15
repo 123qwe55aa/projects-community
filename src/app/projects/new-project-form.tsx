@@ -3,6 +3,8 @@
 import { useState, useRef } from 'react';
 import { createProjectAction } from '@/app/actions';
 import { PROJECT_TEMPLATES, type ProjectTemplate, type BuildingStyle } from './templates';
+import { ImportGithubModal } from './import-github-modal';
+import { ImportObsidianModal } from './import-obsidian-modal';
 
 type Step = 'picker' | 'form';
 
@@ -29,6 +31,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
   const [buildingStyle, setBuildingStyle] = useState<BuildingStyle>('workshop');
   const [imageUrl, setImageUrl] = useState('');
   const [deployUrl, setDeployUrl] = useState('');
+  const [importModal, setImportModal] = useState<'github' | 'obsidian' | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   function handleOpen() {
@@ -45,6 +48,16 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
   }
 
   function handlePickTemplate(template: ProjectTemplate) {
+    if (template.id === 'import-github') {
+      setOpen(false);
+      setImportModal('github');
+      return;
+    }
+    if (template.id === 'import-obsidian') {
+      setOpen(false);
+      setImportModal('obsidian');
+      return;
+    }
     setBackground(template.background);
     setBuildingStyle(template.buildingStyle);
     setStep('form');
@@ -223,6 +236,18 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
             )}
           </div>
         </div>
+      )}
+      {importModal === 'github' && (
+        <ImportGithubModal
+          onDone={() => { setImportModal(null); onProjectCreated?.(); }}
+          onCancel={() => { setImportModal(null); }}
+        />
+      )}
+      {importModal === 'obsidian' && (
+        <ImportObsidianModal
+          onDone={() => { setImportModal(null); onProjectCreated?.(); }}
+          onCancel={() => { setImportModal(null); }}
+        />
       )}
     </>
   );
