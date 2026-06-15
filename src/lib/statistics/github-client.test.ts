@@ -137,6 +137,7 @@ describe('createGitHubClient', () => {
 
   it.each([
     [[], undefined, 0],
+    [[], '<https://github.test/repos/owner/repo/commits?page=17>; rel="last"', 0],
     [[{}], undefined, 1],
     [
       [{}],
@@ -162,6 +163,82 @@ describe('createGitHubClient', () => {
 
     expect(result.commitCount).toBe(expected);
     expect(result.commits30d).toBe(expected);
+  });
+
+  it('follows multiple next pages when the last link is unusable', async () => {
+    const commitUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/repos/owner/repo') return jsonResponse(metadata);
+        if (url.pathname === '/repos/owner/repo/commits') {
+          commitUrls.push(url.toString());
+          const page = url.searchParams.get('page');
+          if (page === '3') return jsonResponse([{}, {}]);
+          if (page === '2') {
+            return jsonResponse([{}, {}], {
+              headers: {
+                Link: '<https://github.test/repos/owner/repo/commits?page=3>; rel="next"',
+              },
+            });
+          }
+          return jsonResponse([{}], {
+            headers: {
+              Link: '<https://github.test/repos/owner/repo/commits?page=2>; rel="next", <https://github.test/repos/owner/repo/commits?page=not-a-number>; rel="last"',
+            },
+          });
+        }
+        if (url.pathname === '/repos/owner/repo/pulls') return jsonResponse([]);
+        if (url.pathname === '/repos/owner/repo/issues') return jsonResponse([]);
+        if (url.pathname === '/search/issues') return jsonResponse({ total_count: 0 });
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+
+    const result = await createGitHubClient({ token: 'token', baseUrl: 'https://github.test' })
+      .fetchRepositoryStatistics('owner/repo');
+
+    expect(result.commitCount).toBe(5);
+    expect(result.commits30d).toBe(5);
+    expect(commitUrls.filter((url) => new URL(url).searchParams.get('page') === '3')).toHaveLength(2);
+  });
+
+  it('stops following a repeated next URL', async () => {
+    const commitUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/repos/owner/repo') return jsonResponse(metadata);
+        if (url.pathname === '/repos/owner/repo/commits') {
+          commitUrls.push(url.toString());
+          if (url.searchParams.get('page') === '2') {
+            return jsonResponse([{}], {
+              headers: {
+                Link: '<https://github.test/repos/owner/repo/commits?page=2>; rel="next"',
+              },
+            });
+          }
+          return jsonResponse([{}], {
+            headers: {
+              Link: '<https://github.test/repos/owner/repo/commits?page=2>; rel="next"',
+            },
+          });
+        }
+        if (url.pathname === '/repos/owner/repo/pulls') return jsonResponse([]);
+        if (url.pathname === '/repos/owner/repo/issues') return jsonResponse([]);
+        if (url.pathname === '/search/issues') return jsonResponse({ total_count: 0 });
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+
+    const result = await createGitHubClient({ token: 'token', baseUrl: 'https://github.test' })
+      .fetchRepositoryStatistics('owner/repo');
+
+    expect(result.commitCount).toBe(2);
+    expect(result.commits30d).toBe(2);
+    expect(commitUrls).toHaveLength(4);
   });
 
   it('follows issue pages and excludes pull request records', async () => {

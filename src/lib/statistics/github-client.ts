@@ -133,20 +133,29 @@ export function createGitHubClient(options: ClientOptions = {}): {
   };
 
   async function countList(url: string): Promise<number> {
-    const { data, response } = await requestJson(url);
-    if (!Array.isArray(data)) {
-      throw new Error('GitHub API returned a malformed list response.');
-    }
-    if (data.length === 0) return 0;
+    let count = 0;
+    let nextUrl: string | undefined = url;
+    const visited = new Set<string>();
 
-    const lastUrl = linkUrl(response.headers.get('Link'), 'last');
-    if (!lastUrl) return data.length;
+    while (nextUrl && !visited.has(nextUrl)) {
+      visited.add(nextUrl);
+      const { data, response } = await requestJson(nextUrl);
+      if (!Array.isArray(data)) {
+        throw new Error('GitHub API returned a malformed list response.');
+      }
 
-    const page = Number(new URL(lastUrl).searchParams.get('page'));
-    if (!Number.isSafeInteger(page) || page < 1) {
-      throw new Error('GitHub API returned malformed pagination metadata.');
+      count += data.length;
+      if (data.length === 0) return count;
+
+      if (visited.size === 1) {
+        const lastPage = linkPage(response.headers.get('Link'), 'last');
+        if (lastPage !== undefined) return lastPage;
+      }
+
+      nextUrl = linkUrl(response.headers.get('Link'), 'next');
     }
-    return page;
+
+    return count;
   }
 
   async function countNonPullRequestIssues(url: string): Promise<number> {
@@ -249,6 +258,18 @@ function linkUrl(header: string | null, relation: string): string | undefined {
     if (match?.[2].split(' ').includes(relation)) return match[1];
   }
   return undefined;
+}
+
+function linkPage(header: string | null, relation: string): number | undefined {
+  const url = linkUrl(header, relation);
+  if (!url) return undefined;
+
+  try {
+    const page = Number(new URL(url).searchParams.get('page'));
+    return Number.isSafeInteger(page) && page >= 1 ? page : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseRepository(data: unknown): RepositoryResponse {
