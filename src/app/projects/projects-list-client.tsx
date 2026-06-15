@@ -4,14 +4,22 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { DeleteProjectButton } from '@/components/DeleteProjectButton';
 import { NewProjectForm } from './new-project-form';
+import { HoverPreview } from './hover-preview';
 
-interface ProjectItem {
+export interface ProjectItem {
   id: string;
   summary: string;
   background: string | null;
   buildingStyle: string;
   growthStage: string;
   decisionCount: number;
+  observationCount: number;
+  createdAt: number | null;
+  lifecycleState: string | null;
+  lifecycleRationale: string | null;
+  obstacles: string | null;
+  recentChanges: string | null;
+  activeThemes: string | null;
 }
 
 export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -78,8 +86,10 @@ export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) 
       {projects.map((project) => (
         <div
           key={project.id}
-          className="group rounded-lg border border-zinc-800 bg-zinc-900 p-5 space-y-3 hover:border-zinc-600 transition-colors"
+          className="group relative rounded-lg border border-zinc-800 bg-zinc-900 p-5 space-y-3 hover:border-zinc-600 transition-colors"
         >
+          <HoverPreview project={project} />
+
           <div className="flex items-start justify-between gap-2">
             <Link
               href={`/projects/${project.id}`}
