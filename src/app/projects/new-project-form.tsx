@@ -112,7 +112,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                   </button>
                   <button
                     onClick={handleClose}
-                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 transition"
+                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500"
                   >
                     Cancel
                   </button>

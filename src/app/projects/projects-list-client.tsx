@@ -13,15 +13,8 @@ export interface ProjectItem {
   buildingStyle: string;
   growthStage: string;
   decisionCount: number;
-  observationCount: number;
   imageUrl: string | null;
   deployUrl: string | null;
-  createdAt: number | null;
-  lifecycleState: string | null;
-  lifecycleRationale: string | null;
-  obstacles: string | null;
-  recentChanges: string | null;
-  activeThemes: string | null;
 }
 
 export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -88,7 +81,7 @@ export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) 
       {projects.map((project) => (
         <div
           key={project.id}
-          className="group relative rounded-lg border border-zinc-800 bg-zinc-900 p-5 space-y-3 hover:border-zinc-600 transition-colors"
+          className="group relative rounded-lg border border-zinc-800 bg-zinc-900 p-5 space-y-3 hover:border-zinc-600"
         >
           <HoverPreview project={project} />
 
