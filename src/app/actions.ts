@@ -222,6 +222,109 @@ export async function importGitHubAction(formData: FormData) {
   return { projectId };
 }
 
+export async function listUserReposAction() {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN not configured');
+
+  const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'projects-community',
+      Accept: 'application/vnd.github.v3+json',
+    },
+  });
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+
+  const repos = (await res.json()) as Array<{
+    name: string;
+    full_name: string;
+    description: string | null;
+    html_url: string;
+    language: string | null;
+    topics: string[];
+    owner: { avatar_url: string };
+    homepage: string | null;
+    fork: boolean;
+    archived: boolean;
+  }>;
+
+  return repos
+    .filter((r) => !r.fork && !r.archived)
+    .map((r) => ({
+      name: r.name,
+      fullName: r.full_name,
+      description: r.description || '',
+      htmlUrl: r.html_url,
+      language: r.language || '',
+      topics: r.topics || [],
+      avatarUrl: r.owner.avatar_url,
+      homepage: r.homepage || '',
+    }));
+}
+
+export async function importOneClickRepoAction(formData: FormData) {
+  const fullName = formData.get('fullName') as string | null;
+  if (!fullName?.trim()) throw new Error('Repo full name is required');
+
+  const [owner, repo] = fullName.split('/');
+  if (!owner || !repo) throw new Error('Invalid repo full name');
+
+  const token = process.env.GITHUB_TOKEN;
+  const authHeaders: Record<string, string> = {
+    'User-Agent': 'projects-community',
+  };
+  if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
+  // Fetch README (try main, then master)
+  let readmeText = '';
+  for (const branch of ['main', 'master']) {
+    const r = await fetch(
+      `https://api.github.com/repos/${fullName}/readme`,
+      { headers: { ...authHeaders, Accept: 'application/vnd.github.raw' } },
+    );
+    if (r.ok) { readmeText = await r.text(); break; }
+  }
+
+  // Fetch repo metadata for description
+  const repoRes = await fetch(`https://api.github.com/repos/${fullName}`, { headers: authHeaders });
+  const repoData = repoRes.ok ? (await repoRes.json()) as Record<string, unknown> : {};
+  const description = (repoData.description as string) || repo;
+  const topics = (repoData.topics as string[]) || [];
+  const language = (repoData.language as string) || '';
+
+  // Style mapping
+  const styleMap: Record<string, string> = {
+    python: 'workshop', javascript: 'studio', typescript: 'studio',
+    rust: 'workshop', go: 'workshop', java: 'workshop', ruby: 'workshop',
+    c: 'workshop', 'c++': 'workshop', 'c#': 'studio', swift: 'studio',
+    kotlin: 'studio', php: 'workshop', shell: 'data-center', dockerfile: 'data-center',
+    html: 'studio', css: 'studio', 'jupyter notebook': 'data-center',
+  };
+  const buildingStyle = styleMap[language.toLowerCase()] || 'workshop';
+
+  const background = `[GitHub] ${fullName}
+${description}
+${topics.length ? `Topics: ${topics.join(', ')}` : ''}
+${readmeText ? `\n${readmeText.slice(0, 2000)}` : ''}`.trim();
+
+  const { db } = getDatabase();
+  const projectId = nanoid();
+  db.insert(projects).values({
+    id: projectId,
+    summary: description.slice(0, 120) || repo,
+    background: background.slice(0, 5000),
+    buildingStyle,
+    growthStage: 'seed',
+    visibility: 'private',
+    imageUrl: null,
+    deployUrl: `https://github.com/${fullName}`,
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { projectId };
+}
+
 export async function importObsidianAction(formData: FormData) {
   const noteContent = formData.get('noteContent') as string | null;
   if (!noteContent?.trim()) throw new Error('Note content is required');
