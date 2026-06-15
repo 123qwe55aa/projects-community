@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/db';
-import { projects, decisionLinks } from '@/db/schema';
+import { projects, decisionLinks, observations } from '@/db/schema';
 import { count } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +20,26 @@ export async function GET() {
 
   const countMap = new Map(decisionCounts.map((r) => [r.projectId, r.count]));
 
+  // Observation counts per project — best-effort
+  let obsCountMap = new Map<string, number>();
+  try {
+    const obsCounts = await db
+      .select({
+        projectId: observations.proposedProjectId,
+        count: count(),
+      })
+      .from(observations)
+      .groupBy(observations.proposedProjectId);
+
+    obsCountMap = new Map(
+      obsCounts
+        .filter((r) => r.projectId !== null)
+        .map((r) => [r.projectId!, r.count]),
+    );
+  } catch {
+    // observations table may not exist or be empty
+  }
+
   const styleLabels: Record<string, string> = {
     workshop: '🔨 Workshop',
     'data-center': '📊 Data Center',
@@ -38,6 +58,8 @@ export async function GET() {
       styleLabels[project.buildingStyle ?? ''] || project.buildingStyle,
     growthStage: project.growthStage || 'seed',
     decisionCount: countMap.get(project.id) ?? 0,
+    observationCount: obsCountMap.get(project.id) ?? 0,
+    createdAt: project.createdAt,
     imageUrl: project.imageUrl ?? null,
     deployUrl: project.deployUrl ?? null,
   }));

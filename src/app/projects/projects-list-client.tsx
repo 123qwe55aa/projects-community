@@ -13,6 +13,8 @@ export interface ProjectItem {
   buildingStyle: string;
   growthStage: string;
   decisionCount: number;
+  observationCount: number;
+  createdAt: string | number | null;
   imageUrl: string | null;
   deployUrl: string | null;
 }

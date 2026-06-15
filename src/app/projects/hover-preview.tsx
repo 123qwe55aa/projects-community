@@ -5,6 +5,18 @@ import type { ProjectItem } from './projects-list-client';
 export type { ProjectItem };
 
 export function HoverPreview({ project }: { project: ProjectItem }) {
+  const createdDate = project.createdAt
+    ? new Date(
+        typeof project.createdAt === 'string'
+          ? project.createdAt
+          : project.createdAt * 1000
+      ).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : null;
+
   return (
     <div className="absolute z-50 w-96 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
       style={{ bottom: '100%', left: '50%', transform: 'translateX(-50%)' }}
@@ -25,6 +37,9 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
           <h4 className="text-sm font-semibold text-white leading-snug line-clamp-3">
             {project.summary}
           </h4>
+          {createdDate && (
+            <p className="text-[11px] text-zinc-600 mt-1">Created {createdDate}</p>
+          )}
         </div>
 
         <div className="px-4 py-3 space-y-2.5 max-h-64 overflow-y-auto">
@@ -37,6 +52,8 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
 
           <div className="flex gap-3 text-[11px] text-zinc-500 flex-wrap">
             <span>{project.decisionCount} decisions</span>
+            <span>·</span>
+            <span>{project.observationCount} observations</span>
             <span>·</span>
             <span className="capitalize">{project.growthStage}</span>
           </div>
