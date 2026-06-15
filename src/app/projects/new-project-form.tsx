@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { createProjectAction, fetchGitHubRepoAction, batchImportObsidianProjectsAction } from '@/app/actions';
+import { createProjectAction } from '@/app/actions';
 import { PROJECT_TEMPLATES, type ProjectTemplate, type BuildingStyle } from './templates';
-import { ObsidianImportFlow } from './obsidian-import-flow';
 
-type Step = 'picker' | 'form' | 'github-import' | 'obsidian-import';
+type Step = 'picker' | 'form';
 
 const STYLE_LABELS: Record<BuildingStyle, string> = {
   workshop: '🔨 Workshop',
@@ -30,20 +29,14 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
   const [buildingStyle, setBuildingStyle] = useState<BuildingStyle>('workshop');
   const [imageUrl, setImageUrl] = useState('');
   const [deployUrl, setDeployUrl] = useState('');
-  const [repoUrl, setRepoUrl] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
-  function reset() {
+  function handleOpen() {
     setStep('picker');
     setBackground('');
     setBuildingStyle('workshop');
     setImageUrl('');
     setDeployUrl('');
-    setRepoUrl('');
-  }
-
-  function handleOpen() {
-    reset();
     setOpen(true);
   }
 
@@ -63,8 +56,6 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
     setStep('form');
   }
 
-  const maxWidth = step === 'picker' ? '640px' : step === 'form' ? '448px' : '480px';
-
   return (
     <>
       <button
@@ -78,7 +69,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900"
-            style={{ maxWidth }}
+            style={{ maxWidth: step === 'picker' ? '640px' : '448px' }}
           >
             {/* ── Template Picker ── */}
             {step === 'picker' && (
@@ -86,7 +77,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                 <div>
                   <h2 className="text-lg font-semibold text-white">Start with a template</h2>
                   <p className="text-sm text-zinc-500 mt-1">
-                    Choose a template to pre-fill the form, or import from elsewhere.
+                    Choose a template to pre-fill the form, or start from scratch.
                   </p>
                 </div>
 
@@ -110,40 +101,6 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                       </span>
                     </button>
                   ))}
-
-                  {/* ── Import option: GitHub ── */}
-                  <button
-                    onClick={() => setStep('github-import')}
-                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-teal-600 hover:bg-zinc-750 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">🐙</span>
-                      <span className="font-medium text-white text-sm group-hover:text-zinc-100">
-                        From GitHub Repo
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-500 leading-snug">
-                      Import a project from a public GitHub repository by URL.
-                    </p>
-                    <span className="inline-block mt-1 text-xs text-teal-600">Import</span>
-                  </button>
-
-                  {/* ── Import option: Obsidian ── */}
-                  <button
-                    onClick={() => setStep('obsidian-import')}
-                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-purple-600 hover:bg-zinc-750 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/30"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">🗒️</span>
-                      <span className="font-medium text-white text-sm group-hover:text-zinc-100">
-                        From Obsidian Note
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-500 leading-snug">
-                      Paste an Obsidian markdown note to create a project from it.
-                    </p>
-                    <span className="inline-block mt-1 text-xs text-purple-600">Import</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
@@ -264,78 +221,6 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                 </form>
               </div>
             )}
-
-            {/* ── GitHub Import ── */}
-            {step === 'github-import' && (
-              <div className="p-6 space-y-4">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setStep('picker')}
-                    className="text-zinc-500 hover:text-white transition text-sm"
-                    aria-label="Back to templates"
-                  >
-                    ←
-                  </button>
-                  <h2 className="text-lg font-semibold text-white">Import from GitHub</h2>
-                </div>
-
-                <form
-                  action={async (formData) => {
-                    try {
-                      const data = await fetchGitHubRepoAction(formData);
-                      setBackground(data.background);
-                      setBuildingStyle(data.buildingStyle as BuildingStyle);
-                      setImageUrl(data.imageUrl || '');
-                      setDeployUrl(data.deployUrl || '');
-                      setStep('form');
-                    } catch (e) {
-                      alert('Failed to fetch repo: ' + (e instanceof Error ? e.message : 'Unknown error'));
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  <div className="space-y-1">
-                    <label htmlFor="repoUrl" className="text-sm text-zinc-400">
-                      GitHub Repository URL
-                    </label>
-                    <input
-                      id="repoUrl"
-                      name="url"
-                      type="url"
-                      required
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="https://github.com/owner/repo"
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-teal-400 focus:outline-none"
-                    />
-                    <p className="text-[11px] text-zinc-600">
-                      We will fetch the README.md and create a project from it.
-                    </p>
-                  </div>
-                  <div className="flex justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={handleClose}
-                      className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 transition"
-                    >
-                      🐙 Import from GitHub
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {/* ── Obsidian Import ── */}
-            {step === 'obsidian-import' && <ObsidianImportFlow
-              onDone={() => { setOpen(false); onProjectCreated?.(); }}
-              onBack={() => setStep('picker')}
-            />}
           </div>
         </div>
       )}
