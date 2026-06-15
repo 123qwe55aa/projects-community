@@ -46,3 +46,6 @@ next-env.d.ts
 # database
 data/
 *.db
+
+# isolated feature worktrees
+.worktrees/
