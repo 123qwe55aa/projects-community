@@ -27,12 +27,16 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
   const [step, setStep] = useState<Step>('picker');
   const [background, setBackground] = useState('');
   const [buildingStyle, setBuildingStyle] = useState<BuildingStyle>('workshop');
+  const [imageUrl, setImageUrl] = useState('');
+  const [deployUrl, setDeployUrl] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
   function handleOpen() {
     setStep('picker');
     setBackground('');
     setBuildingStyle('workshop');
+    setImageUrl('');
+    setDeployUrl('');
     setOpen(true);
   }
 
@@ -170,6 +174,34 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                       <option value="studio">🎨 Studio</option>
                       <option value="community-hall">🏛️ Community Hall</option>
                     </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="imageUrl" className="text-sm text-zinc-400">
+                      Image URL
+                    </label>
+                    <input
+                      id="imageUrl"
+                      name="imageUrl"
+                      type="url"
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder="https://example.com/project-preview.png"
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="deployUrl" className="text-sm text-zinc-400">
+                      Deploy URL
+                    </label>
+                    <input
+                      id="deployUrl"
+                      name="deployUrl"
+                      type="url"
+                      value={deployUrl}
+                      onChange={(e) => setDeployUrl(e.target.value)}
+                      placeholder="https://my-project.vercel.app"
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-white focus:outline-none"
+                    />
                   </div>
                   <div className="flex justify-end gap-3">
                     <button

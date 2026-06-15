@@ -37,7 +37,7 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
   return (
     <div
       className="
-        pointer-events-none absolute z-50 w-80
+        pointer-events-none absolute z-50 w-96
         -translate-y-full -translate-x-1/2 left-1/2
         pb-3
         opacity-0 group-hover:opacity-100
@@ -45,6 +45,18 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
       "
     >
       <div className="rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/60 overflow-hidden">
+        {/* Image */}
+        {project.imageUrl && (
+          <div className="relative w-full h-40 bg-zinc-950 overflow-hidden">
+            <img
+              src={project.imageUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          </div>
+        )}
+
         {/* Header */}
         <div className="px-4 py-3 border-b border-zinc-800">
           <h4 className="text-sm font-semibold text-white leading-snug line-clamp-3">
@@ -79,6 +91,19 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
             <span>·</span>
             <span className="capitalize">{project.growthStage}</span>
           </div>
+
+          {/* Deploy link */}
+          {project.deployUrl && (
+            <a
+              href={project.deployUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-xs text-teal-400 hover:text-teal-300 transition truncate"
+              onClick={(e) => e.stopPropagation()}
+            >
+              ↗ {project.deployUrl.replace(/^https?:\/\//, '')}
+            </a>
+          )}
 
           {/* Lifecycle */}
           {project.lifecycleState && (

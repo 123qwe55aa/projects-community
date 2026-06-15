@@ -145,6 +145,8 @@ export async function addCandidateAction(formData: FormData) {
 export async function createProjectAction(formData: FormData) {
   const background = formData.get('background') as string | null;
   const buildingStyle = formData.get('buildingStyle') as string | null;
+  const imageUrl = formData.get('imageUrl') as string | null;
+  const deployUrl = formData.get('deployUrl') as string | null;
   if (!background?.trim()) throw new Error('Background is required');
 
   const { db } = getDatabase();
@@ -154,6 +156,8 @@ export async function createProjectAction(formData: FormData) {
     id: projectId,
     background: background.trim(),
     summary: background.trim().slice(0, 120),
+    imageUrl: imageUrl?.trim() || null,
+    deployUrl: deployUrl?.trim() || null,
     buildingStyle: buildingStyle || 'workshop',
     growthStage: 'seed',
     visibility: 'private',

@@ -24,6 +24,8 @@ export const projects = sqliteTable('projects', {
   ownerId: text('owner_id').references(() => owners.id),
   background: text('background'), // project background & purpose
   summary: text('summary'), // auto-maintained summary
+  imageUrl: text('image_url'), // project representative image URL
+  deployUrl: text('deploy_url'), // project deployment/live URL
   buildingStyle: text('building_style'), // workshop | data-center | studio | community-hall
   growthStage: text('growth_stage'), // MVP: limited predefined stages
   visibility: text('visibility').default('private'),

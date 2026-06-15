@@ -26,6 +26,8 @@ export async function createProject(input: {
   ownerId?: string;
   background?: string | null;
   summary?: string | null;
+  imageUrl?: string | null;
+  deployUrl?: string | null;
   buildingStyle?: string | null;
   growthStage?: string | null;
   visibility?: string;
@@ -35,6 +37,8 @@ export async function createProject(input: {
     ownerId: input.ownerId ?? 'default',
     background: input.background ?? null,
     summary: input.summary ?? null,
+    imageUrl: input.imageUrl ?? null,
+    deployUrl: input.deployUrl ?? null,
     buildingStyle: input.buildingStyle ?? null,
     growthStage: input.growthStage ?? null,
     visibility: input.visibility ?? 'private',
@@ -52,6 +56,8 @@ export async function getProject(id: string) {
 export async function updateProject(id: string, input: {
   background?: string | null;
   summary?: string | null;
+  imageUrl?: string | null;
+  deployUrl?: string | null;
   buildingStyle?: string | null;
   growthStage?: string | null;
   visibility?: string;

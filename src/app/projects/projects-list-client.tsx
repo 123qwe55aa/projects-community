@@ -14,6 +14,8 @@ export interface ProjectItem {
   growthStage: string;
   decisionCount: number;
   observationCount: number;
+  imageUrl: string | null;
+  deployUrl: string | null;
   createdAt: number | null;
   lifecycleState: string | null;
   lifecycleRationale: string | null;

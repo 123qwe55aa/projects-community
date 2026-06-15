@@ -64,6 +64,8 @@ export async function GET() {
       growthStage: project.growthStage || 'seed',
       decisionCount: countMap.get(project.id) ?? 0,
       observationCount: obsCountMap.get(project.id) ?? 0,
+      imageUrl: project.imageUrl ?? null,
+      deployUrl: project.deployUrl ?? null,
       createdAt: project.createdAt,
       lifecycleState: snapshot?.lifecycleState ?? null,
       lifecycleRationale: snapshot?.lifecycleRationale ?? null,
