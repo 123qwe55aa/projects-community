@@ -1,23 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import type { ProjectItem } from './projects-list-client';
 
-interface PreviewData {
-  summary: string;
-  background: string | null;
-  buildingStyle: string;
-  growthStage: string;
-  decisionCount: number;
-  observationCount: number;
-  imageUrl: string | null;
-  deployUrl: string | null;
-  createdAt: string | number | null;
-  lifecycleState: string | null;
-  lifecycleRationale: string | null;
-  obstacles: string | null;
-  recentChanges: string | null;
-  activeThemes: string | null;
-}
+export type { ProjectItem };
 
 const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -46,52 +31,16 @@ function previewLines(text: string | null | undefined): string[] | null {
   }
 }
 
-export function HoverPreview({ project }: { project: PreviewData }) {
-  const [show, setShow] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleMouseEnter() {
-    timerRef.current = setTimeout(() => setShow(true), 200);
-  }
-
-  function handleMouseLeave() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setShow(false);
-  }
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  if (!show) {
-    return (
-      <div
-        className="absolute inset-0 z-10"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      />
-    );
-  }
-
+export function HoverPreview({ project }: { project: ProjectItem }) {
   const obs = previewLines(project.obstacles);
   const changes = previewLines(project.recentChanges);
   const themes = previewLines(project.activeThemes);
 
   return (
-    <div
-      className="absolute z-50 w-96"
+    <div className="absolute z-50 w-96 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150"
       style={{ bottom: '100%', left: '50%', transform: 'translateX(-50%)' }}
-      onMouseEnter={() => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        setShow(true);
-      }}
-      onMouseLeave={handleMouseLeave}
     >
       <div className="mb-3 rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/60 overflow-hidden">
-        {/* Image */}
         {project.imageUrl && (
           <div className="relative w-full h-40 bg-zinc-950 overflow-hidden">
             <img
@@ -103,7 +52,6 @@ export function HoverPreview({ project }: { project: PreviewData }) {
           </div>
         )}
 
-        {/* Header */}
         <div className="px-4 py-3 border-b border-zinc-800">
           <h4 className="text-sm font-semibold text-white leading-snug line-clamp-3">
             {project.summary}
@@ -115,16 +63,11 @@ export function HoverPreview({ project }: { project: PreviewData }) {
           )}
         </div>
 
-        {/* Body */}
         <div className="px-4 py-3 space-y-2.5 max-h-64 overflow-y-auto">
           {project.background && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
-                Background
-              </p>
-              <p className="text-xs text-zinc-400 leading-relaxed line-clamp-4">
-                {project.background}
-              </p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Background</p>
+              <p className="text-xs text-zinc-400 leading-relaxed line-clamp-4">{project.background}</p>
             </div>
           )}
 
@@ -163,9 +106,7 @@ export function HoverPreview({ project }: { project: PreviewData }) {
 
           {obs && obs.length > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
-                Obstacles
-              </p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Obstacles</p>
               <ul className="space-y-0.5">
                 {obs.slice(0, 3).map((o, i) => (
                   <li key={i} className="text-xs text-zinc-400 flex gap-1.5">
@@ -173,18 +114,14 @@ export function HoverPreview({ project }: { project: PreviewData }) {
                     <span className="line-clamp-2">{o}</span>
                   </li>
                 ))}
-                {obs.length > 3 && (
-                  <li className="text-[11px] text-zinc-600">+{obs.length - 3} more</li>
-                )}
+                {obs.length > 3 && <li className="text-[11px] text-zinc-600">+{obs.length - 3} more</li>}
               </ul>
             </div>
           )}
 
           {changes && changes.length > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
-                Recent Changes
-              </p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Recent Changes</p>
               <ul className="space-y-0.5">
                 {changes.slice(0, 2).map((c, i) => (
                   <li key={i} className="text-xs text-zinc-400 flex gap-1.5">
@@ -192,30 +129,19 @@ export function HoverPreview({ project }: { project: PreviewData }) {
                     <span className="line-clamp-2">{c}</span>
                   </li>
                 ))}
-                {changes.length > 2 && (
-                  <li className="text-[11px] text-zinc-600">+{changes.length - 2} more</li>
-                )}
+                {changes.length > 2 && <li className="text-[11px] text-zinc-600">+{changes.length - 2} more</li>}
               </ul>
             </div>
           )}
 
           {themes && themes.length > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
-                Active Themes
-              </p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">Active Themes</p>
               <div className="flex flex-wrap gap-1">
                 {themes.slice(0, 4).map((t, i) => (
-                  <span
-                    key={i}
-                    className="text-[11px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400"
-                  >
-                    {t}
-                  </span>
+                  <span key={i} className="text-[11px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{t}</span>
                 ))}
-                {themes.length > 4 && (
-                  <span className="text-[11px] text-zinc-600">+{themes.length - 4}</span>
-                )}
+                {themes.length > 4 && <span className="text-[11px] text-zinc-600">+{themes.length - 4}</span>}
               </div>
             </div>
           )}
