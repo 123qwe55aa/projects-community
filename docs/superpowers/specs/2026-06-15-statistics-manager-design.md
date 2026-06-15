@@ -19,10 +19,12 @@ The Statistics Manager provides:
 - a transparent recent-activity score;
 - automatic Project type inference from GitHub topics and primary language;
 - a manual type override that later synchronization cannot replace;
+- user-confirmed merge suggestions when a GitHub repository appears to match an existing Project;
 - a portfolio Statistics page and a per-Project statistics detail page.
 
 It does not add scheduled background jobs, automatic synchronization on page load, arbitrary time
-windows, personal contribution-calendar data, or historical trend charts.
+windows, personal contribution-calendar data, historical trend charts, or destructive automatic
+Project merges.
 
 ## Data Model
 
@@ -72,8 +74,50 @@ The table is a mutable external-data read model, not part of the immutable V2 Pr
 GitHub metric changes do not create Project Events.
 
 Projects imported through the existing one-click GitHub flow create their repository binding in the
-same transaction as the Project. Existing Projects can be bound from the Statistics detail page by
-entering a GitHub URL or normalized `owner/repo`.
+same transaction as the Project only when the user chooses to create a new Project. Existing
+Projects can be bound from the Statistics detail page by entering a GitHub URL or normalized
+`owner/repo`.
+
+## Existing Project Matching And Merge Confirmation
+
+Before a GitHub repository import creates a new Project, the application compares the repository
+name and description with existing unbound Projects. Matching is deterministic and produces ranked
+suggestions rather than automatically merging.
+
+The matching helper normalizes case, whitespace, punctuation, hyphens, and underscores. It scores:
+
+- normalized repository name against the Project summary;
+- repository description against the Project summary;
+- repository description against the Project background.
+
+Each comparison uses token-set similarity after normalization. The composite score is:
+
+```text
+(name-to-summary * 0.60)
++ (description-to-summary * 0.25)
++ (description-to-background * 0.15)
+```
+
+Missing text contributes zero. An exact normalized repository-name and Project-summary match
+receives a minimum score of `0.95`. Suggestions with a score of at least `0.60` are shown, ordered
+by score descending, with at most five suggestions per repository. The UI explains which fields
+matched and shows enough of the existing Project summary and background for the user to make an
+informed choice.
+
+For every suggested match, the user can:
+
+- confirm the match and bind the GitHub repository to the existing Project;
+- reject the suggestion and create a new Project;
+- cancel without changing either side.
+
+A confirmed merge is non-destructive: the existing Project remains the canonical record, and the
+application attaches only the repository binding, inferred type, and later GitHub statistics. It
+does not overwrite the existing Project summary or background, move or delete observations,
+events, decisions, or snapshots, or create a duplicate Project. The GitHub name and description
+remain matching evidence only.
+
+Rejected suggestions are scoped to the current import attempt in the first version. The application
+does not persist a permanent rejection registry.
 
 ## Metric Definitions
 
@@ -118,6 +162,9 @@ The synchronization service exposes:
 - synchronize every bound Project sequentially with a concise success/failure result per Project;
 - bind or change a Project repository;
 - set or clear a manual Project type override.
+
+Repository import uses the same binding service after the user confirms an existing-Project match,
+so duplicate-binding constraints and type inference behave consistently.
 
 Each Project synchronization is isolated. A successful synchronization atomically updates the
 configuration inference, synchronization state, and latest snapshot. A failed synchronization
@@ -164,6 +211,13 @@ The page reads local snapshots and never contacts GitHub merely because it was o
 last successful synchronization time and any latest synchronization error. Projects without a
 binding remain visible with a clear unbound state.
 
+### GitHub Import Match Confirmation
+
+The existing one-click GitHub import flow adds a confirmation step when ranked existing-Project
+matches are found. The dialog shows suggested existing Projects with match reasons and lets the
+user bind the repository to one suggestion, create a new Project anyway, or cancel. Repositories
+with no suggestion above the threshold retain the current one-click create behavior.
+
 ### Project Statistics Detail Page
 
 The `/projects/[id]/statistics` page contains:
@@ -187,6 +241,7 @@ and does not add a charting dependency.
 - An inaccessible, renamed, or deleted repository records an error without clearing its binding or
   previous metrics.
 - A Project cannot bind to a repository already bound to another Project.
+- A merge suggestion cannot target a Project that already has a different GitHub binding.
 - Invalid GitHub URLs and malformed `owner/repo` values fail validation before database writes.
 - `Sync all` reports per-Project results so partial success is visible.
 
@@ -195,6 +250,10 @@ and does not add a charting dependency.
 Automated tests cover:
 
 - repository binding normalization and duplicate-binding rejection;
+- deterministic existing-Project match scoring, ranking, and threshold behavior;
+- exact-name, description-based, and no-match cases;
+- confirmed merge binding without Project field or related-record changes;
+- rejected suggestion creating a distinct Project;
 - deterministic topic-first and language-fallback type inference;
 - manual type override precedence and clearing;
 - activity-score calculation;
@@ -221,6 +280,8 @@ Project snapshots. It can be removed or rebuilt without changing Project event h
 ## Success Criteria
 
 - A user can bind a Project to a GitHub repository and manually synchronize it.
+- A GitHub import suggests likely existing Projects and merges only after explicit confirmation.
+- A confirmed merge preserves the existing Project and all of its related records.
 - One-click GitHub imports are immediately bound and ready to synchronize.
 - The Statistics overview makes Project count, type mix, recent activity, and cumulative stars
   visible from locally stored data.
