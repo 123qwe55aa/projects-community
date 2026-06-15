@@ -69,6 +69,19 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
               ↗ {project.deployUrl.replace(/^https?:\/\//, '')}
             </a>
           )}
+
+          {project.lifecycleState && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
+                Lifecycle: {project.lifecycleState}
+              </p>
+              {project.lifecycleRationale && (
+                <p className="text-xs text-zinc-500 italic leading-relaxed">
+                  &ldquo;{project.lifecycleRationale}&rdquo;
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

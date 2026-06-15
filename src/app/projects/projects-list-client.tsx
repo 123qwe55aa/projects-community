@@ -17,6 +17,8 @@ export interface ProjectItem {
   createdAt: string | number | null;
   imageUrl: string | null;
   deployUrl: string | null;
+  lifecycleState: string | null;
+  lifecycleRationale: string | null;
 }
 
 export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) {

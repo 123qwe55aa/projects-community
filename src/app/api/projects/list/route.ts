@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/db';
-import { projects, decisionLinks, observations } from '@/db/schema';
-import { count } from 'drizzle-orm';
+import { projects, decisionLinks, projectSnapshots, observations } from '@/db/schema';
+import { count, eq } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +40,18 @@ export async function GET() {
     // observations table may not exist or be empty
   }
 
+  // Current snapshots — best-effort
+  let snapshotMap = new Map<string, typeof projectSnapshots.$inferSelect>();
+  try {
+    const snapshots = await db
+      .select()
+      .from(projectSnapshots)
+      .where(eq(projectSnapshots.isCurrent, true));
+    snapshotMap = new Map(snapshots.map((s) => [s.projectId, s]));
+  } catch {
+    // project_snapshots table may not have rows yet
+  }
+
   const styleLabels: Record<string, string> = {
     workshop: '🔨 Workshop',
     'data-center': '📊 Data Center',
@@ -47,22 +59,27 @@ export async function GET() {
     'community-hall': '🏛️ Community Hall',
   };
 
-  const items = allProjects.map((project) => ({
-    id: project.id,
-    summary: project.summary || project.background || 'Untitled Project',
-    background:
-      project.background && project.background !== project.summary
-        ? project.background
-        : null,
-    buildingStyle:
-      styleLabels[project.buildingStyle ?? ''] || project.buildingStyle,
-    growthStage: project.growthStage || 'seed',
-    decisionCount: countMap.get(project.id) ?? 0,
-    observationCount: obsCountMap.get(project.id) ?? 0,
-    createdAt: project.createdAt,
-    imageUrl: project.imageUrl ?? null,
-    deployUrl: project.deployUrl ?? null,
-  }));
+  const items = allProjects.map((project) => {
+    const snapshot = snapshotMap.get(project.id);
+    return {
+      id: project.id,
+      summary: project.summary || project.background || 'Untitled Project',
+      background:
+        project.background && project.background !== project.summary
+          ? project.background
+          : null,
+      buildingStyle:
+        styleLabels[project.buildingStyle ?? ''] || project.buildingStyle,
+      growthStage: project.growthStage || 'seed',
+      decisionCount: countMap.get(project.id) ?? 0,
+      observationCount: obsCountMap.get(project.id) ?? 0,
+      createdAt: project.createdAt,
+      imageUrl: project.imageUrl ?? null,
+      deployUrl: project.deployUrl ?? null,
+      lifecycleState: snapshot?.lifecycleState ?? null,
+      lifecycleRationale: snapshot?.lifecycleRationale ?? null,
+    };
+  });
 
   return NextResponse.json({ projects: items });
 }
