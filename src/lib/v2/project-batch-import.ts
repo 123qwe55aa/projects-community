@@ -85,6 +85,8 @@ function createProject(
       visibility: 'private',
       createdAt,
       updatedAt: createdAt,
+      imageUrl: project.imageUrl ?? null,
+      deployUrl: project.deployUrl ?? null,
     })
     .run();
   tx.insert(projectImportKeys)

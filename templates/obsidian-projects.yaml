@@ -10,6 +10,7 @@ projects:
       bi-directional communication between remote machines and the local app.
     lifecycleState: active
     buildingStyle: studio
+    image_url: https://picsum.photos/seed/codeisland/800/400
 
   - key: demon-dragon-war
     summary: Demon Dragon War — iOS gamified task management with RPG combat
@@ -20,6 +21,7 @@ projects:
       streak tracking, item shop, and social features. Built with Swift.
     lifecycleState: active
     buildingStyle: studio
+    image_url: https://picsum.photos/seed/demon-dragon-war/800/400
 
   - key: xiangqi-game
     summary: Chinese Chess (Xiangqi) AI game built with Next.js
@@ -31,6 +33,8 @@ projects:
       check and checkmate detection.
     lifecycleState: active
     buildingStyle: workshop
+    image_url: https://picsum.photos/seed/xiangqi-game/800/400
+    deploy_url: https://github.com/123qwe55aa/xiangqi-game
 
   - key: job-hunter
     summary: Job Hunter — TypeScript monorepo for automated job recommendations
@@ -41,6 +45,8 @@ projects:
       Includes a cron job worker for scheduled scraping and email delivery via Mailgun.
     lifecycleState: active
     buildingStyle: data-center
+    image_url: https://picsum.photos/seed/job-hunter/800/400
+    deploy_url: https://github.com/123qwe55aa/job-hunter
 
   - key: lol-stats
     summary: LoL Stats API — League of Legends player stats and analysis
@@ -52,6 +58,8 @@ projects:
       and performance trends.
     lifecycleState: active
     buildingStyle: data-center
+    image_url: https://picsum.photos/seed/lol-stats/800/400
+    deploy_url: https://github.com/123qwe55aa/lol-stats
 
   - key: multi-agent-team
     summary: Multi-Agent Team — autonomous agent orchestration framework
@@ -63,6 +71,8 @@ projects:
       use MiniMax-M2.7 (claude), Audit uses gpt-5.4 (codex).
     lifecycleState: active
     buildingStyle: workshop
+    image_url: https://picsum.photos/seed/multi-agent-team/800/400
+    deploy_url: https://github.com/123qwe55aa/multi-agent-team
 
   - key: sunny-notes
     summary: Sunny Notes — personal blog built with Next.js
@@ -73,6 +83,8 @@ projects:
       and sections for blog posts, updates, growth notes, and collaboration info.
     lifecycleState: active
     buildingStyle: studio
+    image_url: https://picsum.photos/seed/sunny-notes/800/400
+    deploy_url: https://github.com/123qwe55aa/sunny-notes
 
   - key: claude-code-harness
     summary: Provider routing refactor for Claude Code harness
@@ -84,6 +96,7 @@ projects:
       and IAM role integration. Combined routing + auth into a new RoutingContext.
     lifecycleState: dormant
     buildingStyle: workshop
+    image_url: https://picsum.photos/seed/claude-code-harness/800/400
 
   - key: github-architecture-research
     summary: Architecture research notes on open-source projects
@@ -95,3 +108,4 @@ projects:
       for reference and learning.
     lifecycleState: dormant
     buildingStyle: community-hall
+    image_url: https://picsum.photos/seed/github-architecture-research/800/400

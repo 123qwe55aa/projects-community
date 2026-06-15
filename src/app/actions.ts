@@ -168,6 +168,84 @@ export async function createProjectAction(formData: FormData) {
   return { projectId };
 }
 
+export async function importGitHubAction(formData: FormData) {
+  const repoUrl = formData.get('repoUrl') as string | null;
+  if (!repoUrl?.trim()) throw new Error('GitHub repo URL is required');
+
+  // Parse owner/repo from URL
+  const match = repoUrl.trim().match(/github\.com\/([^/]+\/[^/]+?)(?:\/|$)/);
+  if (!match) throw new Error('Invalid GitHub repo URL. Expected format: https://github.com/owner/repo');
+  const repoPath = match[1].replace(/\.git$/, '');
+
+  // Fetch README
+  const readmeUrl = `https://raw.githubusercontent.com/${repoPath}/main/README.md`;
+  let background = `Imported from GitHub: ${repoUrl.trim()}\n\n`;
+  try {
+    const res = await fetch(readmeUrl);
+    if (res.ok) {
+      background += await res.text();
+    } else {
+      // Try master branch
+      const masterUrl = `https://raw.githubusercontent.com/${repoPath}/master/README.md`;
+      const res2 = await fetch(masterUrl);
+      if (res2.ok) {
+        background += await res2.text();
+      } else {
+        background += 'No README found.';
+      }
+    }
+  } catch {
+    background += 'Failed to fetch README.';
+  }
+
+  // Truncate very long backgrounds
+  if (background.length > 5000) {
+    background = background.slice(0, 5000) + '\n\n...(truncated)';
+  }
+
+  const summary = repoPath.split('/')[1]?.replace(/[-_]/g, ' ') || repoPath;
+
+  const { db } = getDatabase();
+  const projectId = nanoid();
+  db.insert(projects).values({
+    id: projectId,
+    background,
+    summary: summary.slice(0, 120),
+    deployUrl: repoUrl.trim(),
+    buildingStyle: 'workshop',
+    growthStage: 'seed',
+    visibility: 'private',
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { projectId };
+}
+
+export async function importObsidianAction(formData: FormData) {
+  const noteContent = formData.get('noteContent') as string | null;
+  if (!noteContent?.trim()) throw new Error('Note content is required');
+
+  const lines = noteContent.trim().split('\n');
+  const firstLine = lines[0]?.replace(/^#+\s*/, '').trim() || 'Imported from Obsidian';
+  const background = noteContent.trim().slice(0, 5000);
+
+  const { db } = getDatabase();
+  const projectId = nanoid();
+  db.insert(projects).values({
+    id: projectId,
+    background,
+    summary: firstLine.slice(0, 120),
+    buildingStyle: 'workshop',
+    growthStage: 'seed',
+    visibility: 'private',
+  }).run();
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { projectId };
+}
+
 export async function createDecisionAction(formData: FormData) {
   const question = formData.get('question') as string | null;
   const scope = formData.get('scope') as string | null;
@@ -245,4 +323,124 @@ export async function deleteDecisionAction(decisionId: string) {
 
 export async function pingAction() {
   return { ok: true };
+}
+
+export async function fetchGitHubRepoAction(formData: FormData) {
+  const url = formData.get('url') as string | null;
+  if (!url?.trim()) throw new Error('GitHub repo URL is required');
+
+  const match = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\/|$|#|\?)/);
+  if (!match) throw new Error('Invalid GitHub repo URL. Expected format: https://github.com/owner/repo');
+
+  const [, owner, repo] = match;
+  const cleanRepo = repo.replace(/\.git$/, '');
+
+  // Fetch repo metadata
+  const repoRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, {
+    headers: { 'User-Agent': 'projects-community' },
+  });
+  if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
+  const repoData = await repoRes.json() as Record<string, unknown>;
+
+  // Fetch README
+  const readmeRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/readme`, {
+    headers: { 'User-Agent': 'projects-community', Accept: 'application/vnd.github.raw+json' },
+  });
+  let readmeText = '';
+  if (readmeRes.ok) {
+    readmeText = await readmeRes.text() as string;
+  }
+
+  // Map language to building style
+  const lang = (repoData.language as string || '').toLowerCase();
+  const styleMap: Record<string, string> = {
+    python: 'workshop', javascript: 'studio', typescript: 'studio',
+    rust: 'workshop', go: 'workshop', java: 'workshop', ruby: 'workshop',
+    c: 'workshop', 'c++': 'workshop', 'c#': 'studio', swift: 'studio',
+    kotlin: 'studio', php: 'workshop', shell: 'data-center', dockerfile: 'data-center',
+    html: 'studio', css: 'studio', 'jupyter notebook': 'data-center',
+  };
+  const buildingStyle = styleMap[lang] || 'workshop';
+
+  const description = (repoData.description as string || '') || cleanRepo;
+  const topics = (repoData.topics as string[] || []).join(', ');
+  const background = `[GitHub] ${owner}/${cleanRepo}
+${description}
+${topics ? `Topics: ${topics}` : ''}
+${readmeText ? `\n${readmeText.slice(0, 1800)}` : ''}`.trim();
+  const imageUrl = repoData.owner && typeof repoData.owner === 'object'
+    ? ((repoData.owner as Record<string, unknown>).avatar_url as string || '')
+    : '';
+  const deployUrl = (repoData.homepage as string || '') || `https://github.com/${owner}/${cleanRepo}`;
+
+  return {
+    summary: description.slice(0, 120),
+    background: background.slice(0, 2000),
+    buildingStyle,
+    imageUrl: imageUrl || null,
+    deployUrl,
+  };
+}
+
+export async function getObsidianProjectsAction() {
+  try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const yamlStr = fs.readFileSync(
+      path.join(process.cwd(), 'templates', 'obsidian-projects.yaml'),
+      'utf-8',
+    );
+    const { parse } = await import('yaml');
+    const data = parse(yamlStr) as { projects: Array<Record<string, unknown>> };
+    return {
+      projects: (data.projects || []).map((p: Record<string, unknown>) => ({
+        key: p.key as string,
+        summary: p.summary as string,
+        background: (p.background as string || '').slice(0, 200),
+        lifecycleState: (p.lifecycleState as string) || 'active',
+        buildingStyle: (p.buildingStyle as string) || 'workshop',
+        imageUrl: (p.image_url as string) || null,
+        deployUrl: (p.deploy_url as string) || null,
+      })),
+    };
+  } catch {
+    return { projects: [] };
+  }
+}
+
+export async function batchImportObsidianProjectsAction(formData: FormData) {
+  const keysJson = formData.get('keys') as string | null;
+  if (!keysJson) throw new Error('No project keys provided');
+
+  const keys: string[] = JSON.parse(keysJson);
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const yamlStr = fs.readFileSync(
+    path.join(process.cwd(), 'templates', 'obsidian-projects.yaml'),
+    'utf-8',
+  );
+  const { parse } = await import('yaml');
+  const yamlData = parse(yamlStr) as { projects: Array<Record<string, unknown>> };
+
+  const { db } = getDatabase();
+  let count = 0;
+
+  for (const entry of (yamlData.projects || [])) {
+    if (!keys.includes(entry.key as string)) continue;
+    const projectId = nanoid();
+    db.insert(projects).values({
+      id: projectId,
+      summary: (entry.summary as string || '').slice(0, 120),
+      background: (entry.background as string || '').slice(0, 2000),
+      imageUrl: (entry.image_url as string) || null,
+      deployUrl: (entry.deploy_url as string) || null,
+      buildingStyle: (entry.buildingStyle as string) || 'workshop',
+      growthStage: 'seed',
+      visibility: 'private',
+    }).run();
+    count++;
+  }
+
+  revalidatePath('/projects');
+  return { count };
 }

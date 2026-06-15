@@ -26,6 +26,8 @@ export const projectBatchProjectSchema = z
     lifecycleState: lifecycleStateSchema.optional(),
     buildingStyle: buildingStyleSchema.optional(),
     sourceRef: boundedString(500).optional(),
+    imageUrl: boundedString(2000).optional(),
+    deployUrl: boundedString(2000).optional(),
   })
   .strict();
 
@@ -58,6 +60,8 @@ export const normalizedProjectImportSchema = z
     lifecycleState: lifecycleStateSchema,
     buildingStyle: buildingStyleSchema,
     sourceRef: boundedString(500),
+    imageUrl: boundedString(2000).nullable().optional().default(null),
+    deployUrl: boundedString(2000).nullable().optional().default(null),
   })
   .strict();
 
@@ -111,6 +115,8 @@ export function hashProjectImport(project: NormalizedProjectImport): string {
     lifecycleState: project.lifecycleState,
     buildingStyle: project.buildingStyle,
     sourceRef: project.sourceRef,
+    imageUrl: project.imageUrl ?? null,
+    deployUrl: project.deployUrl ?? null,
   };
 
   return createHash('sha256').update(JSON.stringify(canonicalProject)).digest('hex');

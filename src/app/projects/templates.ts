@@ -64,4 +64,18 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     buildingStyle: 'workshop',
     starterDecision: 'What is the best starting resource or course for this topic?',
   },
+  {
+    id: 'import-github',
+    name: 'Import from GitHub',
+    description: 'Auto-create a project from a GitHub repo — reads README, topics, and metadata.',
+    background: '',
+    buildingStyle: 'workshop',
+  },
+  {
+    id: 'import-obsidian',
+    name: 'Import from Obsidian',
+    description: 'Batch-import projects from your Obsidian vault YAML template.',
+    background: '',
+    buildingStyle: 'data-center',
+  },
 ];
