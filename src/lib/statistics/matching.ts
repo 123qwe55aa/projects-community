@@ -57,7 +57,7 @@ function normalizeText(value: string | null): string {
     ? value
         .normalize('NFC')
         .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
         .trim()
         .replace(/\s+/g, ' ')
     : '';

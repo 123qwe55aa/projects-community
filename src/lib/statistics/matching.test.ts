@@ -39,6 +39,26 @@ describe('scoreProjectMatch', () => {
     expect(match.matchReasons).toEqual(['Exact normalized name']);
   });
 
+  it('preserves mark-dependent Unicode text without collapsing distinct forms', () => {
+    const exact = scoreProjectMatch(
+      { name: 'कि', description: null },
+      { projectId: 'exact', summary: 'कि', background: null },
+    );
+    const distinct = ['क', 'का'].map((summary) =>
+      scoreProjectMatch(
+        { name: 'कि', description: null },
+        { projectId: summary, summary, background: null },
+      ),
+    );
+
+    expect(exact.score).toBe(0.95);
+    expect(exact.matchReasons).toEqual(['Exact normalized name']);
+    expect(distinct.map(({ score }) => score)).toEqual([0, 0]);
+    expect(distinct.flatMap(({ matchReasons }) => matchReasons)).not.toContain(
+      'Exact normalized name',
+    );
+  });
+
   it('uses the documented composite formula for description overlaps', () => {
     const match = scoreProjectMatch(
       { name: '', description: 'alpha beta' },
