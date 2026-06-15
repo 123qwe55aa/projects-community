@@ -22,7 +22,7 @@ const TEMPLATE_ICONS: Record<string, string> = {
   'learning-path': '📚',
 };
 
-export function NewProjectForm() {
+export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => void }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>('picker');
   const [background, setBackground] = useState('');
@@ -135,6 +135,7 @@ export function NewProjectForm() {
                   action={async (formData) => {
                     await createProjectAction(formData);
                     setOpen(false);
+                    onProjectCreated?.();
                   }}
                   className="space-y-4"
                 >

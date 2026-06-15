@@ -14,16 +14,19 @@ interface ProjectItem {
   decisionCount: number;
 }
 
-export function ProjectsListClient() {
+export function ProjectsListClient({ refreshKey = 0 }: { refreshKey?: number }) {
   const [projects, setProjects] = useState<ProjectItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [localRefresh, setLocalRefresh] = useState(0);
 
   useEffect(() => {
+    setProjects(null);
+    setError(null);
     fetch('/api/projects/list')
       .then((r) => r.json())
       .then((data) => setProjects(data.projects))
       .catch((e) => setError(e.message));
-  }, []);
+  }, [refreshKey, localRefresh]);
 
   if (error) {
     return (
@@ -89,7 +92,7 @@ export function ProjectsListClient() {
             <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
               {project.buildingStyle}
             </span>
-            <DeleteProjectButton projectId={project.id} />
+            <DeleteProjectButton projectId={project.id} onDeleted={() => setLocalRefresh((k) => k + 1)} />
           </div>
           {project.background && (
             <p className="text-sm text-zinc-500 line-clamp-2">{project.background}</p>

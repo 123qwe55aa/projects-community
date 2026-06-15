@@ -1,9 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-export function DeleteProjectButton({ projectId }: { projectId: string }) {
+export function DeleteProjectButton({ projectId, onDeleted }: { projectId: string; onDeleted?: () => void }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -13,7 +12,7 @@ export function DeleteProjectButton({ projectId }: { projectId: string }) {
     try {
       const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
       if (res.ok) {
-        router.refresh();
+        onDeleted?.();
       }
     } catch (e) {
       console.error('Delete failed', e);
