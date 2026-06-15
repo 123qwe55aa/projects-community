@@ -139,7 +139,7 @@ describe('V2 schema', () => {
       .values({
         projectId: 'statistics-project',
         githubRepoFullName: 'owner/statistics',
-        inferredType: 'typescript',
+        inferredType: 'application',
         createdAt: now,
         updatedAt: now,
       })
@@ -174,7 +174,7 @@ describe('V2 schema', () => {
           updatedAt: now,
         })
         .run(),
-    ).toThrow();
+    ).toThrow('UNIQUE constraint failed: project_statistics.project_id');
     expect(() =>
       db
         .insert(githubStatisticsSnapshots)
@@ -194,10 +194,10 @@ describe('V2 schema', () => {
           updatedAt: now,
         })
         .run(),
-    ).toThrow();
+    ).toThrow('UNIQUE constraint failed: github_statistics_snapshots.project_id');
   });
 
-  it('rejects duplicate GitHub repository bindings', () => {
+  it('rejects case-variant duplicate GitHub repository bindings', () => {
     const testDatabase = createTestDatabase();
     cleanup = testDatabase.cleanup;
     const { db } = testDatabase;
@@ -208,7 +208,7 @@ describe('V2 schema', () => {
     db.insert(projectStatistics)
       .values({
         projectId: 'statistics-project-1',
-        githubRepoFullName: 'owner/shared',
+        githubRepoFullName: 'Owner/Shared',
         createdAt: now,
         updatedAt: now,
       })
@@ -224,7 +224,49 @@ describe('V2 schema', () => {
           updatedAt: now,
         })
         .run(),
-    ).toThrow();
+    ).toThrow('UNIQUE constraint failed: project_statistics.github_repo_full_name');
+  });
+
+  it('rejects invalid inferred project types', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project' }).run();
+
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project',
+          inferredType: 'invalid',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('CHECK constraint failed: project_statistics_inferred_type_check');
+  });
+
+  it('rejects invalid manual project types', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project' }).run();
+
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project',
+          manualType: 'invalid',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('CHECK constraint failed: project_statistics_manual_type_check');
   });
 
   it('cascades statistics rows when deleting a project', () => {

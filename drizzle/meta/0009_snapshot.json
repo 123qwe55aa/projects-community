@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1ef3882f-a793-44bb-ac12-35aa2c610c36",
+  "id": "3c554904-8620-498f-9c11-0e22c8273f90",
   "prevId": "99d20259-a9c7-4e48-967c-41013c7e4bd8",
   "tables": {
     "adoption_snapshots": {
@@ -1676,7 +1676,7 @@
         "project_statistics_github_repo_unique": {
           "name": "project_statistics_github_repo_unique",
           "columns": [
-            "github_repo_full_name"
+            "\"github_repo_full_name\" collate nocase"
           ],
           "isUnique": true
         }
@@ -1698,7 +1698,16 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "project_statistics_inferred_type_check": {
+          "name": "project_statistics_inferred_type_check",
+          "value": "\"project_statistics\".\"inferred_type\" in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')"
+        },
+        "project_statistics_manual_type_check": {
+          "name": "project_statistics_manual_type_check",
+          "value": "\"project_statistics\".\"manual_type\" in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')"
+        }
+      }
     },
     "projection_checkpoints": {
       "name": "projection_checkpoints",
@@ -2189,6 +2198,14 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "project_statistics_github_repo_unique": {
+        "columns": {
+          "\"github_repo_full_name\" collate nocase": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

@@ -65,7 +65,17 @@ export const projectStatistics = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
   },
   (table) => [
-    uniqueIndex('project_statistics_github_repo_unique').on(table.githubRepoFullName),
+    uniqueIndex('project_statistics_github_repo_unique').on(
+      sql`${table.githubRepoFullName} collate nocase`,
+    ),
+    check(
+      'project_statistics_inferred_type_check',
+      sql`${table.inferredType} in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')`,
+    ),
+    check(
+      'project_statistics_manual_type_check',
+      sql`${table.manualType} in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')`,
+    ),
   ],
 );
 

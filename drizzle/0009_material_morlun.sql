@@ -27,7 +27,9 @@ CREATE TABLE `project_statistics` (
 	`last_error` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "project_statistics_inferred_type_check" CHECK("project_statistics"."inferred_type" in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')),
+	CONSTRAINT "project_statistics_manual_type_check" CHECK("project_statistics"."manual_type" in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `project_statistics_github_repo_unique` ON `project_statistics` (`github_repo_full_name`);
+CREATE UNIQUE INDEX `project_statistics_github_repo_unique` ON `project_statistics` ("github_repo_full_name" collate nocase);
