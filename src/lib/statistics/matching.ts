@@ -55,6 +55,7 @@ export function rankProjectMatches(
 function normalizeText(value: string | null): string {
   return value
     ? value
+        .normalize('NFC')
         .toLowerCase()
         .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim()

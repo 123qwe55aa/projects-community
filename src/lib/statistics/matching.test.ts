@@ -28,6 +28,17 @@ describe('scoreProjectMatch', () => {
     expect(match.matchReasons).toEqual(['Exact normalized name']);
   });
 
+  it('matches canonically equivalent precomposed and decomposed Unicode names', () => {
+    const match = scoreProjectMatch(
+      { name: 'café tracker', description: null },
+      { projectId: 'project-1', summary: 'cafe\u0301 tracker', background: null },
+    );
+
+    expect(match.score).toBe(0.95);
+    expect(match.componentScores.nameToSummary).toBe(1);
+    expect(match.matchReasons).toEqual(['Exact normalized name']);
+  });
+
   it('uses the documented composite formula for description overlaps', () => {
     const match = scoreProjectMatch(
       { name: '', description: 'alpha beta' },
