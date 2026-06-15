@@ -183,6 +183,8 @@ describe('project batch contract', () => {
       background: project.background,
       summary: project.summary,
       key: project.key,
+      imageUrl: project.imageUrl,
+      deployUrl: project.deployUrl,
     };
 
     expect(hashProjectImport(project)).toMatch(/^[a-f0-9]{64}$/);
