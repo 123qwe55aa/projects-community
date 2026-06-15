@@ -3,7 +3,6 @@
 import { useState } from 'react';
 
 export function DeleteProjectButton({ projectId, onDeleted }: { projectId: string; onDeleted?: () => void }) {
-  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
 
