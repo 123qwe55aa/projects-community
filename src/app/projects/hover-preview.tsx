@@ -1,8 +1,23 @@
 'use client';
 
-import type { ProjectItem } from './projects-list-client';
+import { useState, useRef, useEffect } from 'react';
 
-export type { ProjectItem };
+interface PreviewData {
+  summary: string;
+  background: string | null;
+  buildingStyle: string;
+  growthStage: string;
+  decisionCount: number;
+  observationCount: number;
+  imageUrl: string | null;
+  deployUrl: string | null;
+  createdAt: string | number | null;
+  lifecycleState: string | null;
+  lifecycleRationale: string | null;
+  obstacles: string | null;
+  recentChanges: string | null;
+  activeThemes: string | null;
+}
 
 const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -31,22 +46,51 @@ function previewLines(text: string | null | undefined): string[] | null {
   }
 }
 
-export function HoverPreview({ project }: { project: ProjectItem }) {
+export function HoverPreview({ project }: { project: PreviewData }) {
+  const [show, setShow] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleMouseEnter() {
+    timerRef.current = setTimeout(() => setShow(true), 200);
+  }
+
+  function handleMouseLeave() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setShow(false);
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  if (!show) {
+    return (
+      <div
+        className="absolute inset-0 z-10"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      />
+    );
+  }
+
   const obs = previewLines(project.obstacles);
   const changes = previewLines(project.recentChanges);
   const themes = previewLines(project.activeThemes);
 
   return (
     <div
-      className="
-        pointer-events-none absolute z-50 w-96
-        -translate-y-full -translate-x-1/2 left-1/2
-        pb-3
-        opacity-0 group-hover:opacity-100
-        transition-opacity duration-200
-      "
+      className="absolute z-50 w-96"
+      style={{ bottom: '100%', left: '50%', transform: 'translateX(-50%)' }}
+      onMouseEnter={() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setShow(true);
+      }}
+      onMouseLeave={handleMouseLeave}
     >
-      <div className="rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/60 overflow-hidden">
+      <div className="mb-3 rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl shadow-black/60 overflow-hidden">
         {/* Image */}
         {project.imageUrl && (
           <div className="relative w-full h-40 bg-zinc-950 overflow-hidden">
@@ -73,7 +117,6 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
 
         {/* Body */}
         <div className="px-4 py-3 space-y-2.5 max-h-64 overflow-y-auto">
-          {/* Background */}
           {project.background && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
@@ -85,8 +128,7 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
             </div>
           )}
 
-          {/* Stats row */}
-          <div className="flex gap-3 text-[11px] text-zinc-500">
+          <div className="flex gap-3 text-[11px] text-zinc-500 flex-wrap">
             <span>{project.decisionCount} decisions</span>
             <span>·</span>
             <span>{project.observationCount} observations</span>
@@ -94,7 +136,6 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
             <span className="capitalize">{project.growthStage}</span>
           </div>
 
-          {/* Deploy link */}
           {project.deployUrl && (
             <a
               href={project.deployUrl}
@@ -107,7 +148,6 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
             </a>
           )}
 
-          {/* Lifecycle */}
           {project.lifecycleState && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
@@ -115,13 +155,12 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
               </p>
               {project.lifecycleRationale && (
                 <p className="text-xs text-zinc-500 italic leading-relaxed">
-                  "{project.lifecycleRationale}"
+                  &ldquo;{project.lifecycleRationale}&rdquo;
                 </p>
               )}
             </div>
           )}
 
-          {/* Obstacles */}
           {obs && obs.length > 0 && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
@@ -135,15 +174,12 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
                   </li>
                 ))}
                 {obs.length > 3 && (
-                  <li className="text-[11px] text-zinc-600">
-                    +{obs.length - 3} more
-                  </li>
+                  <li className="text-[11px] text-zinc-600">+{obs.length - 3} more</li>
                 )}
               </ul>
             </div>
           )}
 
-          {/* Recent Changes */}
           {changes && changes.length > 0 && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
@@ -157,15 +193,12 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
                   </li>
                 ))}
                 {changes.length > 2 && (
-                  <li className="text-[11px] text-zinc-600">
-                    +{changes.length - 2} more
-                  </li>
+                  <li className="text-[11px] text-zinc-600">+{changes.length - 2} more</li>
                 )}
               </ul>
             </div>
           )}
 
-          {/* Active Themes */}
           {themes && themes.length > 0 && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-0.5">
@@ -181,9 +214,7 @@ export function HoverPreview({ project }: { project: ProjectItem }) {
                   </span>
                 ))}
                 {themes.length > 4 && (
-                  <span className="text-[11px] text-zinc-600">
-                    +{themes.length - 4}
-                  </span>
+                  <span className="text-[11px] text-zinc-600">+{themes.length - 4}</span>
                 )}
               </div>
             </div>
