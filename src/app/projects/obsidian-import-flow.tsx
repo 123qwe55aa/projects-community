@@ -71,7 +71,7 @@ export function ObsidianImportFlow({
         </p>
         <button
           onClick={onDone}
-          className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200 transition"
+          className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200"
         >
           Done
         </button>
@@ -84,7 +84,7 @@ export function ObsidianImportFlow({
       <div className="flex items-center gap-2">
         <button
           onClick={onBack}
-          className="text-zinc-500 hover:text-white transition text-sm"
+          className="text-zinc-500 hover:text-white text-sm"
           aria-label="Back"
         >
           ←
@@ -117,7 +117,7 @@ export function ObsidianImportFlow({
             {projects.map((p) => (
               <label
                 key={p.key}
-                className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition ${
+                className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${
                   selected.has(p.key)
                     ? 'border-purple-700 bg-purple-950/20'
                     : 'border-zinc-700 bg-zinc-800 hover:border-zinc-500'
@@ -152,7 +152,7 @@ export function ObsidianImportFlow({
               <button
                 onClick={handleImport}
                 disabled={selected.size === 0 || importing}
-                className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 transition disabled:opacity-50"
+                className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
               >
                 {importing ? 'Importing...' : `Import ${selected.size} project${selected.size !== 1 ? 's' : ''}`}
               </button>

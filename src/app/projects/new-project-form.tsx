@@ -95,7 +95,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                     <button
                       key={t.id}
                       onClick={() => handlePickTemplate(t)}
-                      className="group text-left rounded-lg border border-zinc-700 bg-zinc-800 p-4 space-y-1 hover:border-zinc-500 hover:bg-zinc-750 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20"
+                      className="group text-left rounded-lg border border-zinc-700 bg-zinc-800 p-4 space-y-1 hover:border-zinc-500 hover:bg-zinc-750 focus:outline-none focus:ring-2 focus:ring-white/20"
                       style={{ backgroundColor: undefined }}
                     >
                       <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                   {/* ── Import option: GitHub ── */}
                   <button
                     onClick={() => setStep('github-import')}
-                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-teal-600 hover:bg-zinc-750 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-teal-600 hover:bg-zinc-750 focus:outline-none focus:ring-2 focus:ring-teal-500/30"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-xl">🐙</span>
@@ -131,7 +131,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                   {/* ── Import option: Obsidian ── */}
                   <button
                     onClick={() => setStep('obsidian-import')}
-                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-purple-600 hover:bg-zinc-750 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                    className="group text-left rounded-lg border border-zinc-700 bg-zinc-800/60 p-4 space-y-1 hover:border-purple-600 hover:bg-zinc-750 focus:outline-none focus:ring-2 focus:ring-purple-500/30"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-xl">🗒️</span>
@@ -149,7 +149,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                 <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
                   <button
                     onClick={handleScratch}
-                    className="text-sm text-zinc-400 hover:text-white transition"
+                    className="text-sm text-zinc-400 hover:text-white"
                   >
                     Start from scratch →
                   </button>
@@ -169,7 +169,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setStep('picker')}
-                    className="text-zinc-500 hover:text-white transition text-sm"
+                    className="text-zinc-500 hover:text-white text-sm"
                     aria-label="Back to templates"
                   >
                     ←
@@ -250,13 +250,13 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                     <button
                       type="button"
                       onClick={handleClose}
-                      className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 transition"
+                      className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200 transition"
+                      className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black hover:bg-zinc-200"
                     >
                       Create Project
                     </button>
@@ -271,7 +271,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setStep('picker')}
-                    className="text-zinc-500 hover:text-white transition text-sm"
+                    className="text-zinc-500 hover:text-white text-sm"
                     aria-label="Back to templates"
                   >
                     ←
@@ -322,7 +322,7 @@ export function NewProjectForm({ onProjectCreated }: { onProjectCreated?: () => 
                     </button>
                     <button
                       type="submit"
-                      className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 transition"
+                      className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500"
                     >
                       🐙 Import from GitHub
                     </button>
