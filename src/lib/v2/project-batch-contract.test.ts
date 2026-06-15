@@ -54,6 +54,8 @@ describe('project batch contract', () => {
           lifecycleState: 'active',
           buildingStyle: 'workshop',
           sourceRef: 'batch-import:projects.yaml',
+          imageUrl: null,
+          deployUrl: null,
         },
         {
           key: 'project-two',
@@ -62,6 +64,8 @@ describe('project batch contract', () => {
           lifecycleState: 'dormant',
           buildingStyle: 'studio',
           sourceRef: 'manual:project-two',
+          imageUrl: null,
+          deployUrl: null,
         },
       ],
     });
