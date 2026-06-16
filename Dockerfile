@@ -8,7 +8,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 COPY pnpm-lock.yaml package.json ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --config.onlyBuiltDependencies=better-sqlite3,esbuild,sharp,unrs-resolver
 
 COPY . .
 RUN pnpm run build
@@ -25,7 +25,7 @@ COPY pnpm-lock.yaml package.json ./
 
 # Install runtime deps and allow build scripts for better-sqlite3 + sharp
 RUN corepack enable && corepack prepare pnpm@latest --activate \
- && pnpm install --frozen-lockfile --config.onlyBuiltDependencies=better-sqlite3,sharp
+ && pnpm install --frozen-lockfile --config.onlyBuiltDependencies=better-sqlite3,esbuild,sharp,unrs-resolver
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
