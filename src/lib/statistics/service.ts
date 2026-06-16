@@ -65,11 +65,6 @@ export async function bindRepository({
   const project = db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
   if (!project) throw new Error(`Project ${projectId} was not found.`);
 
-  const existing = db
-    .select()
-    .from(projectStatistics)
-    .where(eq(projectStatistics.projectId, projectId))
-    .get();
   const duplicate = findBindingByRepo(normalizedRepo);
   if (duplicate && duplicate.projectId !== projectId) {
     throw new Error(`GitHub repository ${normalizedRepo} is already bound to another project.`);
@@ -77,6 +72,12 @@ export async function bindRepository({
 
   try {
     db.transaction((tx) => {
+      const existing = tx
+        .select()
+        .from(projectStatistics)
+        .where(eq(projectStatistics.projectId, projectId))
+        .get();
+
       if (!existing) {
         tx.insert(projectStatistics)
           .values({
@@ -90,23 +91,32 @@ export async function bindRepository({
       }
 
       const repoChanged = existing.githubRepoFullName !== normalizedRepo;
+      if (!repoChanged) {
+        tx.update(projectStatistics)
+          .set({
+            githubRepoFullName: normalizedRepo,
+            updatedAt: now,
+          })
+          .where(eq(projectStatistics.projectId, projectId))
+          .run();
+        return;
+      }
+
       tx.update(projectStatistics)
         .set({
           githubRepoFullName: normalizedRepo,
-          inferredType: repoChanged ? null : existing.inferredType,
-          lastAttemptedAt: repoChanged ? null : existing.lastAttemptedAt,
-          lastSuccessfulAt: repoChanged ? null : existing.lastSuccessfulAt,
-          lastError: repoChanged ? null : existing.lastError,
+          inferredType: null,
+          lastAttemptedAt: null,
+          lastSuccessfulAt: null,
+          lastError: null,
           updatedAt: now,
         })
         .where(eq(projectStatistics.projectId, projectId))
         .run();
 
-      if (repoChanged) {
-        tx.delete(githubStatisticsSnapshots)
-          .where(eq(githubStatisticsSnapshots.projectId, projectId))
-          .run();
-      }
+      tx.delete(githubStatisticsSnapshots)
+        .where(eq(githubStatisticsSnapshots.projectId, projectId))
+        .run();
     });
   } catch (error) {
     throw readableBindingError(error, normalizedRepo);

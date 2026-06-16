@@ -312,6 +312,40 @@ describe('statistics service', () => {
     expect(snapshots()).toHaveLength(0);
   });
 
+  it('bindRepository keeps same-repo derived state and snapshot instead of writing stale fields', async () => {
+    insertProject('project-1');
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/repo' });
+    await synchronizeProjectStatistics('project-1', {
+      now: () => fixedNow,
+      githubClient: clientReturning(
+        statistics({ repoFullName: 'Owner/Repo', repoUrl: 'https://github.com/Owner/Repo' }),
+      ),
+    });
+    const snapshotBefore = snapshotFor('project-1');
+    const { sqlite } = getDatabase();
+    sqlite.exec(`
+      create trigger mutate_statistics_during_same_repo_bind
+      before update of github_repo_full_name on project_statistics
+      when old.project_id = 'project-1' and lower(new.github_repo_full_name) = old.github_repo_full_name
+      begin
+        update project_statistics
+        set inferred_type = 'tooling', last_error = 'current state marker'
+        where project_id = old.project_id;
+      end;
+    `);
+
+    await bindRepository({ projectId: 'project-1', repoFullName: 'OWNER/REPO' });
+
+    expect(statisticsFor('project-1')).toMatchObject({
+      githubRepoFullName: 'owner/repo',
+      inferredType: 'tooling',
+      lastAttemptedAt: fixedNow,
+      lastSuccessfulAt: fixedNow,
+      lastError: 'current state marker',
+    });
+    expect(snapshotFor('project-1')).toEqual(snapshotBefore);
+  });
+
   it('bindRepository on an existing project changes no project fields and no unrelated-record counts', async () => {
     insertProject('project-1', {
       summary: 'Original summary',
