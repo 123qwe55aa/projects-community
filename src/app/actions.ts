@@ -1,11 +1,10 @@
 'use server';
 
 import { nanoid } from 'nanoid';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { getDatabase } from '@/db';
 import {
-  adoptionSnapshots,
   candidates,
   decisions,
   projects,
@@ -17,7 +16,6 @@ import {
 import { normalizeGitHubRepo } from '@/lib/statistics/github-client';
 import { getGitHubImportMatchSuggestions } from '@/lib/statistics/queries';
 import type { ProjectMatchSuggestion } from '@/lib/statistics/types';
-import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
 
 export type RepoImportPreview = {
   fullName: string;
