@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN apk add --no-cache python3 make g++ sqlite
 
@@ -8,26 +8,24 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 COPY pnpm-lock.yaml package.json ./
-
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm run build
 
 # Stage 2: Runtime
-FROM node:20-alpine
+FROM node:22-alpine
 
 RUN apk add --no-cache sqlite
-
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 ENV NODE_ENV=production
 
 COPY pnpm-lock.yaml package.json ./
-# Install all deps (tsx is in devDeps, needed for db:seed at runtime)
-RUN pnpm install --frozen-lockfile
+
+# Install runtime deps and allow build scripts for better-sqlite3 + sharp
+RUN corepack enable && corepack prepare pnpm@latest --activate \
+ && pnpm install --frozen-lockfile --config.onlyBuiltDependencies=better-sqlite3,sharp
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
