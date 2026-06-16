@@ -60,14 +60,14 @@ describe('GitHub one-click import actions', () => {
       },
     ]);
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === 'https://api.github.com/repos/Owner/Repo/readme') {
+      if (url === 'https://api.github.com/repos/owner/repo/readme') {
         return new Response('README body', { status: 200 });
       }
-      if (url === 'https://api.github.com/repos/Owner/Repo') {
+      if (url === 'https://api.github.com/repos/owner/repo') {
         expect(init?.headers).toMatchObject({ 'User-Agent': 'projects-community' });
         return Response.json({
           name: 'Repo',
-          full_name: 'Owner/Repo',
+          full_name: 'owner/repo',
           description: 'A repository description',
           topics: ['typescript', 42, 'matching'],
           language: 'TypeScript',
@@ -82,7 +82,7 @@ describe('GitHub one-click import actions', () => {
     const result = await previewOneClickRepoImportAction(' Owner/Repo ');
 
     expect(result.repo).toEqual({
-      fullName: 'Owner/Repo',
+      fullName: 'owner/repo',
       name: 'Repo',
       description: 'A repository description',
       topics: ['typescript', 'matching'],
@@ -114,7 +114,19 @@ describe('GitHub one-click import actions', () => {
     expect(cache.revalidatePath.mock.calls.map(([path]) => path)).toEqual([
       '/projects',
       '/projects/existing-project',
+      '/statistics',
+      '/projects/existing-project/statistics',
     ]);
+  });
+
+  it('previewOneClickRepoImportAction accepts GitHub URLs and canonicalizes the repo name', async () => {
+    const result = await previewOneClickRepoImportAction(' https://github.com/Owner/Repo ');
+
+    expect(result.repo.fullName).toBe('owner/repo');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/owner/repo/readme',
+      expect.any(Object),
+    );
   });
 
   it('completeOneClickRepoImportAction creates a new project when requested and returns merged false', async () => {
@@ -141,6 +153,8 @@ describe('GitHub one-click import actions', () => {
     expect(cache.revalidatePath.mock.calls.map(([path]) => path)).toEqual([
       '/projects',
       '/projects/new-project',
+      '/statistics',
+      '/projects/new-project/statistics',
     ]);
   });
 
@@ -160,7 +174,7 @@ describe('GitHub one-click import actions', () => {
 
     expect(result).toEqual({ projectId: 'new-project' });
     expect(service.createProjectFromGitHub).toHaveBeenCalledWith({
-      repoFullName: 'Owner/Repo',
+      repoFullName: 'owner/repo',
       metadata: {
         description: 'A repository description',
         topics: ['typescript', 'matching'],

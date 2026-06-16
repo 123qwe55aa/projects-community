@@ -14,6 +14,7 @@ import {
   bindRepositoryToUnboundProject,
   createProjectFromGitHub,
 } from '@/lib/statistics/service';
+import { normalizeGitHubRepo } from '@/lib/statistics/github-client';
 import { getGitHubImportMatchSuggestions } from '@/lib/statistics/queries';
 import type { ProjectMatchSuggestion } from '@/lib/statistics/types';
 import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
@@ -240,6 +241,8 @@ export async function importGitHubAction(formData: FormData) {
 
   revalidatePath('/projects');
   revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/statistics');
+  revalidatePath(`/projects/${projectId}/statistics`);
   return { projectId };
 }
 
@@ -332,6 +335,8 @@ export async function completeOneClickRepoImportAction(
     await bindRepositoryToUnboundProject({ projectId, repoFullName: fullName });
     revalidatePath('/projects');
     revalidatePath(`/projects/${projectId}`);
+    revalidatePath('/statistics');
+    revalidatePath(`/projects/${projectId}/statistics`);
     return { projectId, merged: true };
   }
 
@@ -352,15 +357,14 @@ export async function completeOneClickRepoImportAction(
 
   revalidatePath('/projects');
   revalidatePath(`/projects/${projectId}`);
+  revalidatePath('/statistics');
+  revalidatePath(`/projects/${projectId}/statistics`);
   return { projectId, merged: false };
 }
 
 async function fetchRepoImportPreview(fullNameInput: string): Promise<RepoImportPreview> {
-  const fullName = fullNameInput.trim();
-  if (!fullName) throw new Error('Repo full name is required');
-
-  const [owner, repoName] = fullName.split('/');
-  if (!owner || !repoName) throw new Error('Invalid repo full name');
+  const fullName = normalizeGitHubRepo(fullNameInput);
+  const repoName = fullName.split('/')[1] ?? fullName;
 
   const authHeaders = githubHeaders();
   const readmeRes = await fetch(
