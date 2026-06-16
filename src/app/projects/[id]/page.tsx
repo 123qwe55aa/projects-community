@@ -82,6 +82,12 @@ export default async function ProjectDetailPage({
               <p className="mt-2 max-w-3xl text-sm text-zinc-400">{project.background}</p>
             )}
           </div>
+          <Link
+            href={`/projects/${project.id}/statistics`}
+            className="inline-flex w-fit rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
+          >
+            Statistics
+          </Link>
         </header>
         <ProjectSnapshotPanel snapshot={currentSnapshot} />
         <ProjectTimeline items={timeline} />
