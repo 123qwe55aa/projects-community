@@ -570,17 +570,18 @@ export async function fetchGitHubRepoAction(formData: FormData) {
 
   const [, owner, repo] = match;
   const cleanRepo = repo.replace(/\.git$/, '');
+  const authHeaders = githubHeaders();
 
   // Fetch repo metadata
   const repoRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, {
-    headers: { 'User-Agent': 'projects-community' },
+    headers: authHeaders,
   });
   if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
   const repoData = await repoRes.json() as Record<string, unknown>;
 
   // Fetch README
   const readmeRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/readme`, {
-    headers: { 'User-Agent': 'projects-community', Accept: 'application/vnd.github.raw+json' },
+    headers: { ...authHeaders, Accept: 'application/vnd.github.raw+json' },
   });
   let readmeText = '';
   if (readmeRes.ok) {
