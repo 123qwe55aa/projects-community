@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:20-alpine AS builder
 
 RUN apk add --no-cache python3 make g++ sqlite
 
@@ -15,7 +15,7 @@ COPY . .
 RUN pnpm run build
 
 # Stage 2: Runtime
-FROM node:22-alpine
+FROM node:20-alpine
 
 RUN apk add --no-cache sqlite
 
@@ -26,7 +26,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY pnpm-lock.yaml package.json ./
-RUN pnpm install --frozen-lockfile --prod
+# Install all deps (tsx is in devDeps, needed for db:seed at runtime)
+RUN pnpm install --frozen-lockfile
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
