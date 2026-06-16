@@ -9,6 +9,7 @@ import {
 } from '@/db/schema';
 import { createTestDatabase } from '@/test/db';
 import {
+  bindRepositoryToUnboundProject,
   bindRepository,
   createProjectFromGitHub,
   setManualProjectType,
@@ -371,6 +372,52 @@ describe('statistics service', () => {
       projectStatistics: countsBefore.projectStatistics + 1,
     });
     expect(statisticsFor('project-1')?.githubRepoFullName).toBe('owner/repo');
+  });
+
+  it('bindRepositoryToUnboundProject binds an unbound project without changing project fields or related data', async () => {
+    insertProject('project-1', {
+      summary: 'Original summary',
+      background: 'Original background',
+      deployUrl: 'https://example.com',
+    });
+    const { db } = getDatabase();
+    db.insert(decisions).values({
+      id: 'decision-1',
+      question: 'Keep this?',
+      state: 'researching',
+      scope: 'project',
+      projectId: 'project-1',
+    }).run();
+    const projectBefore = projectFor('project-1');
+    const countsBefore = relatedCounts();
+
+    await bindRepositoryToUnboundProject({ projectId: 'project-1', repoFullName: 'Owner/Repo' });
+
+    expect(projectFor('project-1')).toEqual(projectBefore);
+    expect(relatedCounts()).toEqual({
+      ...countsBefore,
+      projectStatistics: countsBefore.projectStatistics + 1,
+    });
+    expect(statisticsFor('project-1')?.githubRepoFullName).toBe('owner/repo');
+  });
+
+  it('bindRepositoryToUnboundProject rejects already-bound target projects and repos bound elsewhere', async () => {
+    insertProject('project-1');
+    insertProject('project-2');
+    insertProject('project-3');
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/one' });
+    await bindRepository({ projectId: 'project-2', repoFullName: 'owner/two' });
+
+    await expect(
+      bindRepositoryToUnboundProject({ projectId: 'project-1', repoFullName: 'owner/three' }),
+    ).rejects.toThrow(/already bound/i);
+    await expect(
+      bindRepositoryToUnboundProject({ projectId: 'project-3', repoFullName: 'OWNER/TWO' }),
+    ).rejects.toThrow(/already bound/i);
+
+    expect(statisticsFor('project-1')?.githubRepoFullName).toBe('owner/one');
+    expect(statisticsFor('project-2')?.githubRepoFullName).toBe('owner/two');
+    expect(statisticsFor('project-3')).toBeUndefined();
   });
 
   it('createProjectFromGitHub creates a project and binding atomically and rejects duplicate repos without an orphan project', async () => {

@@ -123,6 +123,65 @@ export async function bindRepository({
   }
 }
 
+export async function bindRepositoryToUnboundProject({
+  projectId,
+  repoFullName,
+}: {
+  projectId: string;
+  repoFullName: string;
+}): Promise<void> {
+  const normalizedRepo = normalizeGitHubRepo(repoFullName);
+  const { db } = getDatabase();
+  const now = new Date();
+
+  const project = db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
+  if (!project) throw new Error(`Project ${projectId} was not found.`);
+
+  const existing = db
+    .select({ githubRepoFullName: projectStatistics.githubRepoFullName })
+    .from(projectStatistics)
+    .where(eq(projectStatistics.projectId, projectId))
+    .get();
+  if (existing?.githubRepoFullName) {
+    throw new Error(`Project ${projectId} is already bound to a GitHub repository.`);
+  }
+
+  const duplicate = findBindingByRepo(normalizedRepo);
+  if (duplicate && duplicate.projectId !== projectId) {
+    throw new Error(`GitHub repository ${normalizedRepo} is already bound to another project.`);
+  }
+
+  try {
+    db.insert(projectStatistics)
+      .values({
+        projectId,
+        githubRepoFullName: normalizedRepo,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: projectStatistics.projectId,
+        set: {
+          githubRepoFullName: normalizedRepo,
+          updatedAt: now,
+        },
+        where: sql`${projectStatistics.githubRepoFullName} is null`,
+      })
+      .run();
+  } catch (error) {
+    throw readableBindingError(error, normalizedRepo);
+  }
+
+  const current = db
+    .select({ githubRepoFullName: projectStatistics.githubRepoFullName })
+    .from(projectStatistics)
+    .where(eq(projectStatistics.projectId, projectId))
+    .get();
+  if (current?.githubRepoFullName !== normalizedRepo) {
+    throw new Error(`Project ${projectId} is already bound to a GitHub repository.`);
+  }
+}
+
 export async function setManualProjectType({
   projectId,
   manualType,

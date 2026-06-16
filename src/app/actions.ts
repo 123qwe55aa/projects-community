@@ -10,8 +10,28 @@ import {
   decisions,
   projects,
 } from '@/db/schema';
-import { createProjectFromGitHub } from '@/lib/statistics/service';
+import {
+  bindRepositoryToUnboundProject,
+  createProjectFromGitHub,
+} from '@/lib/statistics/service';
+import { getGitHubImportMatchSuggestions } from '@/lib/statistics/queries';
+import type { ProjectMatchSuggestion } from '@/lib/statistics/types';
 import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
+
+export type RepoImportPreview = {
+  fullName: string;
+  name: string;
+  description: string;
+  topics: string[];
+  language: string;
+  readmeText: string;
+  htmlUrl: string;
+};
+
+export type GitHubProjectMatchSuggestion = ProjectMatchSuggestion & {
+  projectSummary: string | null;
+  projectBackgroundExcerpt: string | null;
+};
 
 export async function adoptCandidateAction(formData: FormData) {
   const decisionId = formData.get('decisionId') as string;
@@ -267,47 +287,173 @@ export async function importOneClickRepoAction(formData: FormData) {
   const fullName = formData.get('fullName') as string | null;
   if (!fullName?.trim()) throw new Error('Repo full name is required');
 
-  const [owner, repo] = fullName.split('/');
-  if (!owner || !repo) throw new Error('Invalid repo full name');
-
-  const token = process.env.GITHUB_TOKEN;
-  const authHeaders: Record<string, string> = {
-    'User-Agent': 'projects-community',
-  };
-  if (token) authHeaders['Authorization'] = `Bearer ${token}`;
-
-  // Fetch README (try main, then master)
-  let readmeText = '';
-  for (const branch of ['main', 'master']) {
-    const r = await fetch(
-      `https://api.github.com/repos/${fullName}/readme`,
-      { headers: { ...authHeaders, Accept: 'application/vnd.github.raw' } },
-    );
-    if (r.ok) { readmeText = await r.text(); break; }
-  }
-
-  // Fetch repo metadata for description
-  const repoRes = await fetch(`https://api.github.com/repos/${fullName}`, { headers: authHeaders });
-  const repoData = repoRes.ok ? (await repoRes.json()) as Record<string, unknown> : {};
-  const description = (repoData.description as string) || repo;
-  const topics = Array.isArray(repoData.topics)
-    ? repoData.topics.filter((topic): topic is string => typeof topic === 'string')
-    : [];
-  const language = (repoData.language as string) || '';
-
+  const repo = await fetchRepoImportPreview(fullName);
   const { projectId } = await createProjectFromGitHub({
-    repoFullName: fullName,
+    repoFullName: repo.fullName,
     metadata: {
-      description,
-      topics,
-      language,
-      readmeText,
+      description: repo.description,
+      topics: repo.topics,
+      language: repo.language,
+      readmeText: repo.readmeText,
     },
   });
 
   revalidatePath('/projects');
   revalidatePath(`/projects/${projectId}`);
   return { projectId };
+}
+
+export async function previewOneClickRepoImportAction(
+  fullName: string,
+): Promise<{ repo: RepoImportPreview; suggestions: GitHubProjectMatchSuggestion[] }> {
+  const repo = await fetchRepoImportPreview(fullName);
+  const suggestions = await getGitHubImportMatchSuggestions({
+    name: repo.name,
+    description: repo.description,
+  });
+
+  return {
+    repo,
+    suggestions: enrichProjectMatchSuggestions(suggestions),
+  };
+}
+
+export async function completeOneClickRepoImportAction(
+  formData: FormData,
+): Promise<{ projectId: string; merged: boolean }> {
+  const fullName = (formData.get('fullName') as string | null)?.trim();
+  const mode = (formData.get('mode') as string | null)?.trim();
+  if (!fullName) throw new Error('Repo full name is required');
+
+  if (mode === 'bind-existing') {
+    const projectId = (formData.get('projectId') as string | null)?.trim();
+    if (!projectId) throw new Error('projectId is required for bind-existing imports');
+
+    await bindRepositoryToUnboundProject({ projectId, repoFullName: fullName });
+    revalidatePath('/projects');
+    revalidatePath(`/projects/${projectId}`);
+    return { projectId, merged: true };
+  }
+
+  if (mode !== 'create-new') {
+    throw new Error('Import mode must be bind-existing or create-new');
+  }
+
+  const topics = parseImportTopics((formData.get('topics') as string | null) ?? '');
+  const { projectId } = await createProjectFromGitHub({
+    repoFullName: fullName,
+    metadata: {
+      description: ((formData.get('description') as string | null) ?? '').trim(),
+      topics,
+      language: ((formData.get('language') as string | null) ?? '').trim(),
+      readmeText: ((formData.get('readmeText') as string | null) ?? '').trim(),
+    },
+  });
+
+  revalidatePath('/projects');
+  revalidatePath(`/projects/${projectId}`);
+  return { projectId, merged: false };
+}
+
+async function fetchRepoImportPreview(fullNameInput: string): Promise<RepoImportPreview> {
+  const fullName = fullNameInput.trim();
+  if (!fullName) throw new Error('Repo full name is required');
+
+  const [owner, repoName] = fullName.split('/');
+  if (!owner || !repoName) throw new Error('Invalid repo full name');
+
+  const authHeaders = githubHeaders();
+  const readmeRes = await fetch(
+    `https://api.github.com/repos/${fullName}/readme`,
+    { headers: { ...authHeaders, Accept: 'application/vnd.github.raw' } },
+  );
+  const readmeText = readmeRes.ok ? await readmeRes.text() : '';
+
+  const repoRes = await fetch(`https://api.github.com/repos/${fullName}`, { headers: authHeaders });
+  const repoData = repoRes.ok ? (await repoRes.json()) as Record<string, unknown> : {};
+  const name = typeof repoData.name === 'string' && repoData.name.trim()
+    ? repoData.name
+    : repoName;
+  const description = typeof repoData.description === 'string' && repoData.description.trim()
+    ? repoData.description
+    : repoName;
+  const topics = Array.isArray(repoData.topics)
+    ? repoData.topics.filter((topic): topic is string => typeof topic === 'string')
+    : [];
+  const language = typeof repoData.language === 'string' ? repoData.language : '';
+  const htmlUrl = typeof repoData.html_url === 'string' && repoData.html_url.trim()
+    ? repoData.html_url
+    : `https://github.com/${fullName}`;
+
+  return {
+    fullName,
+    name,
+    description,
+    topics,
+    language,
+    readmeText,
+    htmlUrl,
+  };
+}
+
+function enrichProjectMatchSuggestions(
+  suggestions: ProjectMatchSuggestion[],
+): GitHubProjectMatchSuggestion[] {
+  if (suggestions.length === 0) return [];
+
+  const { db } = getDatabase();
+  const projectRows = db
+    .select({
+      id: projects.id,
+      summary: projects.summary,
+      background: projects.background,
+    })
+    .from(projects)
+    .all();
+  const projectsById = new Map(projectRows.map((project) => [project.id, project]));
+
+  return suggestions.map((suggestion) => {
+    const project = projectsById.get(suggestion.projectId);
+    return {
+      ...suggestion,
+      projectSummary: project?.summary ?? null,
+      projectBackgroundExcerpt: excerpt(project?.background ?? null),
+    };
+  });
+}
+
+function githubHeaders(): Record<string, string> {
+  const token = process.env.GITHUB_TOKEN;
+  const headers: Record<string, string> = {
+    'User-Agent': 'projects-community',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function parseImportTopics(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((topic): topic is string => typeof topic === 'string')
+        .map((topic) => topic.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // Fall back to comma-separated topics from simple forms.
+  }
+  return trimmed
+    .split(',')
+    .map((topic) => topic.trim())
+    .filter(Boolean);
+}
+
+function excerpt(value: string | null): string | null {
+  if (!value) return null;
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
 }
 
 export async function importObsidianAction(formData: FormData) {

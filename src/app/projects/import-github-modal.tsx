@@ -1,7 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { listUserReposAction, importOneClickRepoAction } from '@/app/actions';
+import {
+  completeOneClickRepoImportAction,
+  listUserReposAction,
+  previewOneClickRepoImportAction,
+  type GitHubProjectMatchSuggestion,
+  type RepoImportPreview,
+} from '@/app/actions';
+import { GitHubMatchConfirmation } from './github-match-confirmation';
 
 interface RepoItem {
   name: string;
@@ -47,6 +54,12 @@ export function ImportGithubModal({
   const [search, setSearch] = useState('');
   const [importing, setImporting] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [pendingMatch, setPendingMatch] = useState<{
+    repo: RepoImportPreview;
+    suggestions: GitHubProjectMatchSuggestion[];
+  } | null>(null);
+  const [bindingProjectId, setBindingProjectId] = useState<string | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -71,15 +84,69 @@ export function ImportGithubModal({
     setImporting(fullName);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.set('fullName', fullName);
-      await importOneClickRepoAction(formData);
-      setSuccess(fullName);
-      setTimeout(() => onDone(), 1200);
+      const preview = await previewOneClickRepoImportAction(fullName);
+      if (preview.suggestions.length > 0) {
+        setPendingMatch(preview);
+        setImporting(null);
+        return;
+      }
+
+      await completeCreateNew(preview.repo);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to import repo');
       setImporting(null);
     }
+  }
+
+  async function handleUseExisting(projectId: string) {
+    if (!pendingMatch) return;
+    setBindingProjectId(projectId);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.set('mode', 'bind-existing');
+      formData.set('fullName', pendingMatch.repo.fullName);
+      formData.set('projectId', projectId);
+      await completeOneClickRepoImportAction(formData);
+      setSuccess(pendingMatch.repo.fullName);
+      setTimeout(() => onDone(), 1200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to bind repo');
+      setBindingProjectId(null);
+    }
+  }
+
+  async function handleCreateNewAnyway() {
+    if (!pendingMatch) return;
+    setCreatingNew(true);
+    setError(null);
+    try {
+      await completeCreateNew(pendingMatch.repo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to import repo');
+      setCreatingNew(false);
+    }
+  }
+
+  function handleCancelMatch() {
+    setPendingMatch(null);
+    setBindingProjectId(null);
+    setCreatingNew(false);
+    setImporting(null);
+    setError(null);
+  }
+
+  async function completeCreateNew(repo: RepoImportPreview) {
+    const formData = new FormData();
+    formData.set('mode', 'create-new');
+    formData.set('fullName', repo.fullName);
+    formData.set('description', repo.description);
+    formData.set('topics', JSON.stringify(repo.topics));
+    formData.set('language', repo.language);
+    formData.set('readmeText', repo.readmeText);
+    await completeOneClickRepoImportAction(formData);
+    setSuccess(repo.fullName);
+    setTimeout(() => onDone(), 1200);
   }
 
   const filtered = repos.filter((r) => {
@@ -104,17 +171,18 @@ export function ImportGithubModal({
           </p>
         </div>
 
-        {/* Search */}
-        <div className="shrink-0 px-6 pb-3">
-          <input
-            ref={inputRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search repos…"
-            className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-white focus:outline-none"
-          />
-        </div>
+        {!pendingMatch && (
+          <div className="shrink-0 px-6 pb-3">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search repos…"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-white focus:outline-none"
+            />
+          </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -130,75 +198,88 @@ export function ImportGithubModal({
           </div>
         )}
 
-        {/* Repo list */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
-              <span className="ml-3 text-sm text-zinc-500">Loading repos…</span>
-            </div>
-          ) : filtered.length === 0 ? (
-            <p className="py-12 text-center text-sm text-zinc-600">
-              {search ? 'No repos match your search' : 'No repos found'}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {filtered.map((repo) => (
-                <button
-                  key={repo.fullName}
-                  onClick={() => handleImport(repo.fullName)}
-                  disabled={importing !== null}
-                  className="w-full rounded-lg border border-zinc-800 bg-zinc-850 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-40"
-                >
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={repo.avatarUrl}
-                      alt=""
-                      className="mt-0.5 h-5 w-5 shrink-0 rounded-full"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-white">
-                          {repo.fullName}
-                        </span>
-                        {importing === repo.fullName && (
-                          <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
-                        )}
-                      </div>
-                      {repo.description && (
-                        <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">
-                          {repo.description}
-                        </p>
-                      )}
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <LangBadge lang={repo.language} />
-                        {repo.topics.slice(0, 3).map((t) => (
-                          <span
-                            key={t}
-                            className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-500"
-                          >
-                            {t}
+        {pendingMatch ? (
+          <GitHubMatchConfirmation
+            repo={pendingMatch.repo}
+            suggestions={pendingMatch.suggestions}
+            busyProjectId={bindingProjectId}
+            creatingNew={creatingNew}
+            onUseExisting={handleUseExisting}
+            onCreateNew={handleCreateNewAnyway}
+            onCancel={handleCancelMatch}
+          />
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
+                <span className="ml-3 text-sm text-zinc-500">Loading repos…</span>
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="py-12 text-center text-sm text-zinc-600">
+                {search ? 'No repos match your search' : 'No repos found'}
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {filtered.map((repo) => (
+                  <button
+                    key={repo.fullName}
+                    onClick={() => handleImport(repo.fullName)}
+                    disabled={importing !== null}
+                    className="w-full rounded-lg border border-zinc-800 bg-zinc-850 px-4 py-3 text-left transition hover:border-zinc-600 hover:bg-zinc-800 disabled:opacity-40"
+                  >
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={repo.avatarUrl}
+                        alt=""
+                        className="mt-0.5 h-5 w-5 shrink-0 rounded-full"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-white">
+                            {repo.fullName}
                           </span>
-                        ))}
+                          {importing === repo.fullName && (
+                            <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
+                          )}
+                        </div>
+                        {repo.description && (
+                          <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">
+                            {repo.description}
+                          </p>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <LangBadge lang={repo.language} />
+                          {repo.topics.slice(0, 3).map((t) => (
+                            <span
+                              key={t}
+                              className="rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-500"
+                            >
+                              {t}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-zinc-800 px-6 py-4">
-          <button
-            onClick={onCancel}
-            disabled={importing !== null}
-            className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 transition disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
+        {!pendingMatch && (
+          <div className="shrink-0 border-t border-zinc-800 px-6 py-4">
+            <button
+              onClick={onCancel}
+              disabled={importing !== null}
+              className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 transition disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
