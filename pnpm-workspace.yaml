@@ -3,4 +3,8 @@ allowBuilds:
   esbuild: false
   sharp: true
   unrs-resolver: false
-onlyBuiltDependencies: '["better-sqlite3", "sharp", "esbuild", "unrs-resolver"]'
+onlyBuiltDependencies:
+  - better-sqlite3
+  - sharp
+  - esbuild
+  - unrs-resolver

@@ -8,12 +8,9 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
 COPY pnpm-lock.yaml package.json .npmrc ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-
-# Rebuild native modules needed by the build step
-RUN pnpm rebuild esbuild sharp better-sqlite3 unrs-resolver 2>/dev/null; true
 RUN pnpm run build
 
 # Stage 2: Runtime
@@ -25,12 +22,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY pnpm-lock.yaml package.json .npmrc ./
-
+# Install runtime deps (onlyBuiltDependencies handles native modules)
 RUN corepack enable && corepack prepare pnpm@10 --activate \
- && pnpm install --frozen-lockfile --ignore-scripts
-
-# Rebuild native modules needed at runtime
-RUN pnpm rebuild better-sqlite3 sharp 2>/dev/null; true
+ && pnpm install --frozen-lockfile
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
