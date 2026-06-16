@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { CurrentProjectCard, LifecycleState } from '@/lib/v2/queries';
+import { EnergyBar } from '@/components/ui/EnergyBar';
 
 const lifecycleOrder: LifecycleState[] = ['active', 'dormant', 'ended', 'archived'];
 
@@ -75,17 +76,7 @@ function ProjectCard({ project }: { project: CurrentProjectCard }) {
             <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
               Energy
             </span>
-            <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  project.energy > 0
-                    ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
-                    : 'bg-zinc-700'
-                }`}
-                style={{ width: `${project.energy * 10}%` }}
-              />
-            </div>
-            <span className="w-5 text-right text-xs text-zinc-500">{project.energy}</span>
+            <EnergyBar value={project.energy} className="flex-1" showValue />
           </div>
         </div>
       )}
