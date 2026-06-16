@@ -1,4 +1,4 @@
-import { asc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDatabase } from '@/db';
 import {
@@ -65,27 +65,49 @@ export async function bindRepository({
   const project = db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
   if (!project) throw new Error(`Project ${projectId} was not found.`);
 
+  const existing = db
+    .select()
+    .from(projectStatistics)
+    .where(eq(projectStatistics.projectId, projectId))
+    .get();
   const duplicate = findBindingByRepo(normalizedRepo);
   if (duplicate && duplicate.projectId !== projectId) {
     throw new Error(`GitHub repository ${normalizedRepo} is already bound to another project.`);
   }
 
   try {
-    db.insert(projectStatistics)
-      .values({
-        projectId,
-        githubRepoFullName: normalizedRepo,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: projectStatistics.projectId,
-        set: {
+    db.transaction((tx) => {
+      if (!existing) {
+        tx.insert(projectStatistics)
+          .values({
+            projectId,
+            githubRepoFullName: normalizedRepo,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        return;
+      }
+
+      const repoChanged = existing.githubRepoFullName !== normalizedRepo;
+      tx.update(projectStatistics)
+        .set({
           githubRepoFullName: normalizedRepo,
+          inferredType: repoChanged ? null : existing.inferredType,
+          lastAttemptedAt: repoChanged ? null : existing.lastAttemptedAt,
+          lastSuccessfulAt: repoChanged ? null : existing.lastSuccessfulAt,
+          lastError: repoChanged ? null : existing.lastError,
           updatedAt: now,
-        },
-      })
-      .run();
+        })
+        .where(eq(projectStatistics.projectId, projectId))
+        .run();
+
+      if (repoChanged) {
+        tx.delete(githubStatisticsSnapshots)
+          .where(eq(githubStatisticsSnapshots.projectId, projectId))
+          .run();
+      }
+    });
   } catch (error) {
     throw readableBindingError(error, normalizedRepo);
   }
@@ -166,14 +188,23 @@ export async function synchronizeProjectStatistics(
     repository = await githubClient.fetchRepositoryStatistics(repoFullName);
   } catch (error) {
     const message = errorMessage(error);
-    db.update(projectStatistics)
+    const updateResult = db.update(projectStatistics)
       .set({
         lastAttemptedAt: attemptedAt,
         lastError: message,
         updatedAt: attemptedAt,
       })
-      .where(eq(projectStatistics.projectId, projectId))
+      .where(
+        and(
+          eq(projectStatistics.projectId, projectId),
+          eq(projectStatistics.githubRepoFullName, repoFullName),
+        ),
+      )
       .run();
+
+    if (updateResult.changes === 0) {
+      return bindingChangedResult(projectId, repoFullName, attemptedAt, config?.lastSuccessfulAt ?? null);
+    }
 
     return {
       projectId,
@@ -190,8 +221,19 @@ export async function synchronizeProjectStatistics(
     primaryLanguage: repository.primaryLanguage,
   });
   const score = activityScore30d(repository);
+  let bindingChanged = false;
 
   db.transaction((tx) => {
+    const currentConfig = tx
+      .select({ githubRepoFullName: projectStatistics.githubRepoFullName })
+      .from(projectStatistics)
+      .where(eq(projectStatistics.projectId, projectId))
+      .get();
+    if (currentConfig?.githubRepoFullName !== repoFullName) {
+      bindingChanged = true;
+      return;
+    }
+
     tx.update(projectStatistics)
       .set({
         inferredType,
@@ -243,6 +285,10 @@ export async function synchronizeProjectStatistics(
       .run();
   });
 
+  if (bindingChanged) {
+    return bindingChangedResult(projectId, repoFullName, attemptedAt, config?.lastSuccessfulAt ?? null);
+  }
+
   return {
     projectId,
     repoFullName,
@@ -290,7 +336,7 @@ export async function createProjectFromGitHub(input: {
   const { db } = getDatabase();
   const now = new Date();
   const projectId = nanoid();
-  const displayRepoFullName = input.repoFullName.trim().replace(/\.git$/i, '');
+  const displayRepoFullName = displayRepositoryName(input.repoFullName, normalizedRepoFullName);
   const repoName = displayRepoFullName.split('/')[1] ?? normalizedRepoFullName.split('/')[1] ?? normalizedRepoFullName;
   const description = input.metadata.description.trim() || repoName;
   const topics = input.metadata.topics.filter((topic) => topic.trim()).map((topic) => topic.trim());
@@ -350,6 +396,28 @@ function readableBindingError(error: unknown, repoFullName: string): Error {
     return new Error(`GitHub repository ${repoFullName} is already bound to another project.`);
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function bindingChangedResult(
+  projectId: string,
+  repoFullName: string,
+  attemptedAt: Date,
+  successfulAt: Date | null,
+): SynchronizationResult {
+  return {
+    projectId,
+    repoFullName,
+    ok: false,
+    error: `Project ${projectId} GitHub binding changed during synchronization.`,
+    attemptedAt,
+    successfulAt,
+  };
+}
+
+function displayRepositoryName(input: string, normalizedRepoFullName: string): string {
+  const trimmed = input.trim();
+  if (/^https?:\/\//i.test(trimmed)) return normalizedRepoFullName;
+  return trimmed.replace(/\.git$/i, '');
 }
 
 function errorMessage(error: unknown): string {

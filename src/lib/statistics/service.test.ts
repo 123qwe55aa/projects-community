@@ -176,6 +176,68 @@ describe('statistics service', () => {
     });
   });
 
+  it('synchronizeProjectStatistics does not write stale success when the binding changes during fetch', async () => {
+    insertProject('project-1');
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/old' });
+    const client: NonNullable<StatisticsDependencies['githubClient']> = {
+      async fetchRepositoryStatistics() {
+        await bindRepository({ projectId: 'project-1', repoFullName: 'owner/new' });
+        return statistics({ repoFullName: 'Owner/Old', repoUrl: 'https://github.com/Owner/Old' });
+      },
+    };
+
+    const result = await synchronizeProjectStatistics('project-1', {
+      now: () => fixedNow,
+      githubClient: client,
+    });
+
+    expect(result).toMatchObject({
+      projectId: 'project-1',
+      repoFullName: 'owner/old',
+      ok: false,
+    });
+    expect(result.error).toMatch(/binding changed/i);
+    expect(statisticsFor('project-1')).toMatchObject({
+      githubRepoFullName: 'owner/new',
+      inferredType: null,
+      lastAttemptedAt: null,
+      lastSuccessfulAt: null,
+      lastError: null,
+    });
+    expect(snapshots()).toHaveLength(0);
+  });
+
+  it('synchronizeProjectStatistics does not write stale failure when the binding changes during fetch', async () => {
+    insertProject('project-1');
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/old' });
+    const client: NonNullable<StatisticsDependencies['githubClient']> = {
+      async fetchRepositoryStatistics() {
+        await bindRepository({ projectId: 'project-1', repoFullName: 'owner/new' });
+        throw new Error('old repo failed');
+      },
+    };
+
+    const result = await synchronizeProjectStatistics('project-1', {
+      now: () => fixedNow,
+      githubClient: client,
+    });
+
+    expect(result).toMatchObject({
+      projectId: 'project-1',
+      repoFullName: 'owner/old',
+      ok: false,
+    });
+    expect(result.error).toMatch(/binding changed/i);
+    expect(statisticsFor('project-1')).toMatchObject({
+      githubRepoFullName: 'owner/new',
+      inferredType: null,
+      lastAttemptedAt: null,
+      lastSuccessfulAt: null,
+      lastError: null,
+    });
+    expect(snapshots()).toHaveLength(0);
+  });
+
   it('records first sync failure in config without creating a fake snapshot', async () => {
     insertProject('project-1');
     await bindRepository({ projectId: 'project-1', repoFullName: 'owner/repo' });
@@ -224,6 +286,30 @@ describe('statistics service', () => {
     ]);
     expect(snapshotFor('project-1')).toBeDefined();
     expect(snapshotFor('project-3')).toBeDefined();
+  });
+
+  it('bindRepository clears repo-derived state and old snapshot when rebinding while preserving manual type', async () => {
+    insertProject('project-1');
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/old' });
+    await synchronizeProjectStatistics('project-1', {
+      now: () => fixedNow,
+      githubClient: clientReturning(
+        statistics({ repoFullName: 'Owner/Old', repoUrl: 'https://github.com/Owner/Old' }),
+      ),
+    });
+    await setManualProjectType({ projectId: 'project-1', manualType: 'library' });
+
+    await bindRepository({ projectId: 'project-1', repoFullName: 'owner/new' });
+
+    expect(statisticsFor('project-1')).toMatchObject({
+      githubRepoFullName: 'owner/new',
+      inferredType: null,
+      manualType: 'library',
+      lastAttemptedAt: null,
+      lastSuccessfulAt: null,
+      lastError: null,
+    });
+    expect(snapshots()).toHaveLength(0);
   });
 
   it('bindRepository on an existing project changes no project fields and no unrelated-record counts', async () => {
@@ -291,6 +377,25 @@ describe('statistics service', () => {
       }),
     ).rejects.toThrow(/already bound/i);
     expect(allProjects()).toHaveLength(beforeProjectCount + 1);
+  });
+
+  it('createProjectFromGitHub uses normalized display and deploy values for URL input', async () => {
+    const created = await createProjectFromGitHub({
+      repoFullName: 'https://github.com/Owner/Repo',
+      metadata: {
+        description: 'URL repository',
+        topics: [],
+        language: '',
+      },
+    });
+
+    const project = projectFor(created.projectId);
+    expect(project).toMatchObject({
+      deployUrl: 'https://github.com/owner/repo',
+      imageUrl: null,
+    });
+    expect(project?.background).toContain('[GitHub] owner/repo');
+    expect(statisticsFor(created.projectId)?.githubRepoFullName).toBe('owner/repo');
   });
 });
 
