@@ -9,11 +9,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   corrections,
   eventEvidence,
+  githubStatisticsSnapshots,
   hypothesisEvidence,
   observations,
   projectEvents,
   projectHypotheses,
   projectImportKeys,
+  projectStatistics,
   projectSnapshots,
   projectionCheckpoints,
   projects,
@@ -124,6 +126,182 @@ describe('V2 schema', () => {
     expect(() =>
       db.delete(projects).where(eq(projects.id, 'imported-project')).run(),
     ).toThrow();
+  });
+
+  it('stores one statistics configuration and latest snapshot per project', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project', summary: 'Statistics' }).run();
+    db.insert(projectStatistics)
+      .values({
+        projectId: 'statistics-project',
+        githubRepoFullName: 'owner/statistics',
+        inferredType: 'application',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(githubStatisticsSnapshots)
+      .values({
+        projectId: 'statistics-project',
+        repoFullName: 'owner/statistics',
+        repoUrl: 'https://github.com/owner/statistics',
+        topics: '["analytics"]',
+        commitCount: 100,
+        pullRequestCount: 20,
+        issueCount: 10,
+        starCount: 5,
+        commits30d: 12,
+        pullRequests30d: 3,
+        issues30d: 2,
+        activityScore30d: 23,
+        updatedAt: now,
+      })
+      .run();
+
+    expect(db.select().from(projectStatistics).all()).toHaveLength(1);
+    expect(db.select().from(githubStatisticsSnapshots).all()).toHaveLength(1);
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project',
+          githubRepoFullName: 'owner/other',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('UNIQUE constraint failed: project_statistics.project_id');
+    expect(() =>
+      db
+        .insert(githubStatisticsSnapshots)
+        .values({
+          projectId: 'statistics-project',
+          repoFullName: 'owner/other',
+          repoUrl: 'https://github.com/owner/other',
+          topics: '[]',
+          commitCount: 0,
+          pullRequestCount: 0,
+          issueCount: 0,
+          starCount: 0,
+          commits30d: 0,
+          pullRequests30d: 0,
+          issues30d: 0,
+          activityScore30d: 0,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('UNIQUE constraint failed: github_statistics_snapshots.project_id');
+  });
+
+  it('rejects case-variant duplicate GitHub repository bindings', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project-1' }).run();
+    db.insert(projects).values({ id: 'statistics-project-2' }).run();
+    db.insert(projectStatistics)
+      .values({
+        projectId: 'statistics-project-1',
+        githubRepoFullName: 'Owner/Shared',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project-2',
+          githubRepoFullName: 'owner/shared',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('UNIQUE constraint failed: project_statistics.github_repo_full_name');
+  });
+
+  it('rejects invalid inferred project types', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project' }).run();
+
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project',
+          inferredType: 'invalid',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('CHECK constraint failed: project_statistics_inferred_type_check');
+  });
+
+  it('rejects invalid manual project types', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project' }).run();
+
+    expect(() =>
+      db
+        .insert(projectStatistics)
+        .values({
+          projectId: 'statistics-project',
+          manualType: 'invalid',
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run(),
+    ).toThrow('CHECK constraint failed: project_statistics_manual_type_check');
+  });
+
+  it('cascades statistics rows when deleting a project', () => {
+    const testDatabase = createTestDatabase();
+    cleanup = testDatabase.cleanup;
+    const { db } = testDatabase;
+    const now = new Date();
+
+    db.insert(projects).values({ id: 'statistics-project' }).run();
+    db.insert(projectStatistics)
+      .values({ projectId: 'statistics-project', createdAt: now, updatedAt: now })
+      .run();
+    db.insert(githubStatisticsSnapshots)
+      .values({
+        projectId: 'statistics-project',
+        repoFullName: 'owner/statistics',
+        repoUrl: 'https://github.com/owner/statistics',
+        topics: '[]',
+        commitCount: 0,
+        pullRequestCount: 0,
+        issueCount: 0,
+        starCount: 0,
+        commits30d: 0,
+        pullRequests30d: 0,
+        issues30d: 0,
+        activityScore30d: 0,
+        updatedAt: now,
+      })
+      .run();
+
+    expect(() =>
+      db.delete(projects).where(eq(projects.id, 'statistics-project')).run(),
+    ).not.toThrow();
+    expect(db.select().from(projectStatistics).all()).toHaveLength(0);
+    expect(db.select().from(githubStatisticsSnapshots).all()).toHaveLength(0);
   });
 
   it('rejects duplicate evidence relationships', () => {

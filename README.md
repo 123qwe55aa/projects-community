@@ -111,6 +111,36 @@ npm run projects:import -- templates/projects.example.yaml --dry-run
 A dry run uses a temporary database snapshot for validation, comparison, and migrations. It does
 not create, migrate, or write to the configured real database.
 
+## Statistics Manager
+
+The Statistics Manager adds a local portfolio overview for Project counts, inferred Project types,
+GitHub repository bindings, cumulative repository metrics, and 30-day contribution activity.
+
+Open `/statistics` to review the portfolio view. Each Project also has a detail page at
+`/projects/<project-id>/statistics` where you can bind or update its GitHub repository, refresh the
+local GitHub snapshot, and set an optional manual type override.
+
+Configure a GitHub token before syncing private repositories or higher-volume accounts:
+
+```env
+GITHUB_TOKEN=github_pat_...
+```
+
+Optional GitHub Enterprise or test API endpoint:
+
+```env
+GITHUB_API_BASE_URL=https://api.github.example.com
+```
+
+Statistics are intentionally stored as local snapshots. The app does not auto-sync in the
+background; use **Sync all** from `/statistics` or **Sync project** on an individual Project
+statistics page when you want fresh GitHub counts.
+
+When importing from GitHub, the app compares repository name and description against existing
+unbound Projects. If a likely match appears, you can bind the repository to that Project instead of
+creating a duplicate. Binding only records the GitHub repository relationship and leaves the
+existing Project fields, evidence, Decisions, and related data unchanged.
+
 ## V1 Compatibility
 
 Existing V1 Projects remain readable. V1 Decisions, Candidate research, comparisons, adoption

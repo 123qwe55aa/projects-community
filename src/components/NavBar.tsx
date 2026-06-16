@@ -8,6 +8,7 @@ const primaryLinks = [
   { href: '/attention', label: 'Needs Attention', icon: '!' },
   { href: '/hypotheses', label: 'Hypotheses', icon: '◇' },
   { href: '/projects', label: 'Projects', icon: '▦' },
+  { href: '/statistics', label: 'Statistics', icon: '▥' },
 ];
 
 const secondaryLinks = [

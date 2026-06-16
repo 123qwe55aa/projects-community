@@ -49,6 +49,56 @@ export const projectImportKeys = sqliteTable(
   ],
 );
 
+export const projectStatistics = sqliteTable(
+  'project_statistics',
+  {
+    projectId: text('project_id')
+      .primaryKey()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    githubRepoFullName: text('github_repo_full_name'),
+    inferredType: text('inferred_type'),
+    manualType: text('manual_type'),
+    lastAttemptedAt: integer('last_attempted_at', { mode: 'timestamp' }),
+    lastSuccessfulAt: integer('last_successful_at', { mode: 'timestamp' }),
+    lastError: text('last_error'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('project_statistics_github_repo_unique').on(
+      sql`${table.githubRepoFullName} collate nocase`,
+    ),
+    check(
+      'project_statistics_inferred_type_check',
+      sql`${table.inferredType} in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')`,
+    ),
+    check(
+      'project_statistics_manual_type_check',
+      sql`${table.manualType} in ('application', 'library', 'tooling', 'data', 'content', 'infrastructure', 'community', 'other')`,
+    ),
+  ],
+);
+
+export const githubStatisticsSnapshots = sqliteTable('github_statistics_snapshots', {
+  projectId: text('project_id')
+    .primaryKey()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  repoFullName: text('repo_full_name').notNull(),
+  repoUrl: text('repo_url').notNull(),
+  primaryLanguage: text('primary_language'),
+  topics: text('topics').notNull(),
+  pushedAt: integer('pushed_at', { mode: 'timestamp' }),
+  commitCount: integer('commit_count').notNull(),
+  pullRequestCount: integer('pull_request_count').notNull(),
+  issueCount: integer('issue_count').notNull(),
+  starCount: integer('star_count').notNull(),
+  commits30d: integer('commits_30d').notNull(),
+  pullRequests30d: integer('pull_requests_30d').notNull(),
+  issues30d: integer('issues_30d').notNull(),
+  activityScore30d: integer('activity_score_30d').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+});
+
 // ──────────────────────────────────────────────────
 // Decisions
 // ──────────────────────────────────────────────────
