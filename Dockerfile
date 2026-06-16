@@ -7,10 +7,12 @@ RUN apk add --no-cache python3 make g++ sqlite
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
-COPY pnpm-lock.yaml package.json .npmrc ./
-RUN pnpm install --frozen-lockfile
+COPY pnpm-lock.yaml package.json ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm rebuild better-sqlite3 esbuild sharp unrs-resolver 2>/dev/null; true
 RUN pnpm run build
 
 # Stage 2: Runtime
@@ -21,11 +23,13 @@ RUN apk add --no-cache sqlite
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY pnpm-lock.yaml package.json .npmrc ./
+COPY pnpm-lock.yaml package.json ./
 
-# Install runtime deps (build approval via .npmrc)
+# Install runtime deps, skip scripts, then rebuild needed native modules
 RUN corepack enable && corepack prepare pnpm@latest --activate \
- && pnpm install --frozen-lockfile
+ && pnpm install --frozen-lockfile --ignore-scripts
+
+RUN pnpm rebuild better-sqlite3 esbuild sharp unrs-resolver 2>/dev/null; true
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
