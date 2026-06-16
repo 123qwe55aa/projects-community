@@ -31,10 +31,6 @@ type RepositoryResponse = {
   default_branch: string;
 };
 
-type IssueResponse = {
-  pull_request?: unknown;
-};
-
 const DEFAULT_BASE_URL = 'https://api.github.com';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -108,7 +104,7 @@ export function createGitHubClient(options: ClientOptions = {}): {
         response.headers.get('X-RateLimit-Remaining') === '0'
       ) {
         const reset = response.headers.get('X-RateLimit-Reset');
-        const resetMessage = reset ? ` Reset time: ${new Date(Number(reset) * 1000).toISOString()}.` : '';
+        const resetMessage = formatRateLimitReset(reset);
         throw new Error(`GitHub API rate limit exceeded.${resetMessage}`);
       }
       if (response.status === 404) {
@@ -161,13 +157,15 @@ export function createGitHubClient(options: ClientOptions = {}): {
   async function countNonPullRequestIssues(url: string): Promise<number> {
     let count = 0;
     let nextUrl: string | undefined = url;
+    const visited = new Set<string>();
 
-    while (nextUrl) {
+    while (nextUrl && !visited.has(nextUrl)) {
+      visited.add(nextUrl);
       const { data, response } = await requestJson(nextUrl);
-      if (!Array.isArray(data)) {
+      if (!Array.isArray(data) || !data.every(isRecord)) {
         throw new Error('GitHub API returned a malformed issue list response.');
       }
-      count += (data as IssueResponse[]).filter((issue) => !issue.pull_request).length;
+      count += data.filter((issue) => !issue.pull_request).length;
       nextUrl = linkUrl(response.headers.get('Link'), 'next');
     }
 
@@ -270,6 +268,13 @@ function linkPage(header: string | null, relation: string): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+function formatRateLimitReset(reset: string | null): string {
+  if (!reset) return '';
+
+  const resetDate = new Date(Number(reset) * 1000);
+  return Number.isFinite(resetDate.getTime()) ? ` Reset time: ${resetDate.toISOString()}.` : '';
 }
 
 function parseRepository(data: unknown): RepositoryResponse {

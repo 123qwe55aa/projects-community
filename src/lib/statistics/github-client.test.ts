@@ -270,6 +270,45 @@ describe('createGitHubClient', () => {
     expect(result.issueCount).toBe(2);
   });
 
+  it('counts each issue page once when next links repeat', async () => {
+    const issueUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/repos/owner/repo') return jsonResponse(metadata);
+        if (url.pathname === '/repos/owner/repo/commits') return jsonResponse([]);
+        if (url.pathname === '/repos/owner/repo/pulls') return jsonResponse([]);
+        if (url.pathname === '/search/issues') return jsonResponse({ total_count: 0 });
+        if (url.pathname === '/repos/owner/repo/issues') {
+          const urlText = url.toString();
+          if (issueUrls.includes(urlText)) throw new Error(`Repeated issue page fetch: ${urlText}`);
+          issueUrls.push(urlText);
+
+          if (url.searchParams.get('page') === '2') {
+            return jsonResponse([{ number: 2 }, { number: 3, pull_request: {} }], {
+              headers: {
+                Link: '<https://github.test/repos/owner/repo/issues?state=all&per_page=100&page=2>; rel="next"',
+              },
+            });
+          }
+          return jsonResponse([{ number: 1 }], {
+            headers: {
+              Link: '<https://github.test/repos/owner/repo/issues?state=all&per_page=100&page=2>; rel="next"',
+            },
+          });
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+
+    const result = await createGitHubClient({ token: 'token', baseUrl: 'https://github.test' })
+      .fetchRepositoryStatistics('owner/repo');
+
+    expect(result.issueCount).toBe(2);
+    expect(issueUrls).toHaveLength(2);
+  });
+
   it('sends required headers and uses configured base URL', async () => {
     const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
       void args;
@@ -356,4 +395,51 @@ describe('createGitHubClient', () => {
     expect((error as Error).message).toContain(new Date(1781481600 * 1000).toISOString());
     expect((error as Error).message).not.toContain('secret-token');
   });
+
+  it('reports rate limits when the reset header is malformed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          { message: 'API rate limit exceeded for secret-token' },
+          {
+            status: 403,
+            headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': 'not-a-timestamp' },
+          },
+        ),
+      ),
+    );
+
+    const error = await createGitHubClient({ token: 'secret-token' })
+      .fetchRepositoryStatistics('owner/repo')
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/rate limit exceeded/i);
+    expect((error as Error).message).not.toMatch(/invalid time value/i);
+    expect((error as Error).message).not.toContain('secret-token');
+  });
+
+  it.each([[null], ['not an object']] as const)(
+    'reports malformed issue list responses for %s issue entries',
+    async (entry) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const url = new URL(String(input));
+          if (url.pathname === '/repos/owner/repo') return jsonResponse(metadata);
+          if (url.pathname === '/repos/owner/repo/commits') return jsonResponse([]);
+          if (url.pathname === '/repos/owner/repo/pulls') return jsonResponse([]);
+          if (url.pathname === '/repos/owner/repo/issues') return jsonResponse([entry]);
+          if (url.pathname === '/search/issues') return jsonResponse({ total_count: 0 });
+          throw new Error(`Unexpected URL: ${url}`);
+        }),
+      );
+
+      await expect(
+        createGitHubClient({ token: 'secret-token', baseUrl: 'https://github.test' })
+          .fetchRepositoryStatistics('owner/repo'),
+      ).rejects.toThrow(/malformed issue list response/i);
+    },
+  );
 });
