@@ -10,6 +10,7 @@ import {
   decisions,
   projects,
 } from '@/db/schema';
+import { createProjectFromGitHub } from '@/lib/statistics/service';
 import { getCurrentProjectSnapshot } from '@/lib/v2/projection/project';
 
 export async function adoptCandidateAction(formData: FormData) {
@@ -289,36 +290,26 @@ export async function importOneClickRepoAction(formData: FormData) {
   const repoRes = await fetch(`https://api.github.com/repos/${fullName}`, { headers: authHeaders });
   const repoData = repoRes.ok ? (await repoRes.json()) as Record<string, unknown> : {};
   const description = (repoData.description as string) || repo;
-  const topics = (repoData.topics as string[]) || [];
+  const topics = Array.isArray(repoData.topics)
+    ? repoData.topics.filter((topic): topic is string => typeof topic === 'string')
+    : [];
   const language = (repoData.language as string) || '';
+  const avatarUrl = repoData.owner && typeof repoData.owner === 'object'
+    ? ((repoData.owner as Record<string, unknown>).avatar_url as string | undefined) ?? null
+    : null;
+  const homepage = (repoData.homepage as string | undefined) || '';
 
-  // Style mapping
-  const styleMap: Record<string, string> = {
-    python: 'workshop', javascript: 'studio', typescript: 'studio',
-    rust: 'workshop', go: 'workshop', java: 'workshop', ruby: 'workshop',
-    c: 'workshop', 'c++': 'workshop', 'c#': 'studio', swift: 'studio',
-    kotlin: 'studio', php: 'workshop', shell: 'data-center', dockerfile: 'data-center',
-    html: 'studio', css: 'studio', 'jupyter notebook': 'data-center',
-  };
-  const buildingStyle = styleMap[language.toLowerCase()] || 'workshop';
-
-  const background = `[GitHub] ${fullName}
-${description}
-${topics.length ? `Topics: ${topics.join(', ')}` : ''}
-${readmeText ? `\n${readmeText.slice(0, 2000)}` : ''}`.trim();
-
-  const { db } = getDatabase();
-  const projectId = nanoid();
-  db.insert(projects).values({
-    id: projectId,
-    summary: description.slice(0, 120) || repo,
-    background: background.slice(0, 5000),
-    buildingStyle,
-    growthStage: 'seed',
-    visibility: 'private',
-    imageUrl: null,
-    deployUrl: `https://github.com/${fullName}`,
-  }).run();
+  const { projectId } = await createProjectFromGitHub({
+    repoFullName: fullName,
+    metadata: {
+      description,
+      topics,
+      language,
+      readmeText,
+      homepage,
+      avatarUrl,
+    },
+  });
 
   revalidatePath('/projects');
   revalidatePath(`/projects/${projectId}`);
