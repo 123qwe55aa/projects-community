@@ -279,27 +279,27 @@ export async function createProjectFromGitHub(input: {
     topics: string[];
     language: string;
     readmeText?: string;
-    homepage?: string;
-    avatarUrl?: string | null;
   };
 }): Promise<{ projectId: string }> {
-  const repoFullName = normalizeGitHubRepo(input.repoFullName);
-  const duplicate = findBindingByRepo(repoFullName);
-  if (duplicate) throw new Error(`GitHub repository ${repoFullName} is already bound to another project.`);
+  const normalizedRepoFullName = normalizeGitHubRepo(input.repoFullName);
+  const duplicate = findBindingByRepo(normalizedRepoFullName);
+  if (duplicate) {
+    throw new Error(`GitHub repository ${normalizedRepoFullName} is already bound to another project.`);
+  }
 
   const { db } = getDatabase();
   const now = new Date();
   const projectId = nanoid();
-  const repoName = repoFullName.split('/')[1] ?? repoFullName;
+  const displayRepoFullName = input.repoFullName.trim().replace(/\.git$/i, '');
+  const repoName = displayRepoFullName.split('/')[1] ?? normalizedRepoFullName.split('/')[1] ?? normalizedRepoFullName;
   const description = input.metadata.description.trim() || repoName;
   const topics = input.metadata.topics.filter((topic) => topic.trim()).map((topic) => topic.trim());
   const language = input.metadata.language.trim();
   const readmeText = input.metadata.readmeText?.trim() ?? '';
-  const homepage = input.metadata.homepage?.trim();
-  const githubUrl = `https://github.com/${repoFullName}`;
+  const githubUrl = `https://github.com/${displayRepoFullName}`;
 
   const background = [
-    `[GitHub] ${repoFullName}`,
+    `[GitHub] ${displayRepoFullName}`,
     description,
     topics.length ? `Topics: ${topics.join(', ')}` : '',
     readmeText ? `\n${readmeText.slice(0, 2000)}` : '',
@@ -315,22 +315,22 @@ export async function createProjectFromGitHub(input: {
           buildingStyle: STYLE_MAP[language.toLowerCase()] || 'workshop',
           growthStage: 'seed',
           visibility: 'private',
-          imageUrl: input.metadata.avatarUrl?.trim() || null,
-          deployUrl: homepage || githubUrl,
+          imageUrl: null,
+          deployUrl: githubUrl,
         })
         .run();
 
       tx.insert(projectStatistics)
         .values({
           projectId,
-          githubRepoFullName: repoFullName,
+          githubRepoFullName: normalizedRepoFullName,
           createdAt: now,
           updatedAt: now,
         })
         .run();
     });
   } catch (error) {
-    throw readableBindingError(error, repoFullName);
+    throw readableBindingError(error, normalizedRepoFullName);
   }
 
   return { projectId };

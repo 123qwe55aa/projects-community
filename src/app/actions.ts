@@ -294,10 +294,6 @@ export async function importOneClickRepoAction(formData: FormData) {
     ? repoData.topics.filter((topic): topic is string => typeof topic === 'string')
     : [];
   const language = (repoData.language as string) || '';
-  const avatarUrl = repoData.owner && typeof repoData.owner === 'object'
-    ? ((repoData.owner as Record<string, unknown>).avatar_url as string | undefined) ?? null
-    : null;
-  const homepage = (repoData.homepage as string | undefined) || '';
 
   const { projectId } = await createProjectFromGitHub({
     repoFullName: fullName,
@@ -306,8 +302,6 @@ export async function importOneClickRepoAction(formData: FormData) {
       topics,
       language,
       readmeText,
-      homepage,
-      avatarUrl,
     },
   });
 

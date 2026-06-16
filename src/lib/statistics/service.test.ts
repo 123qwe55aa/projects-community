@@ -47,6 +47,14 @@ describe('statistics service', () => {
     ).rejects.toThrow(/already bound/i);
   });
 
+  it('bindRepository rejects a nonexistent project with a readable error', async () => {
+    await expect(
+      bindRepository({ projectId: 'missing-project', repoFullName: 'owner/repo' }),
+    ).rejects.toThrow(/project missing-project was not found/i);
+    expect(statisticsRows()).toHaveLength(0);
+    expect(snapshots()).toHaveLength(0);
+  });
+
   it('setManualProjectType sets, clears, and rejects invalid manual types', async () => {
     insertProject('project-1');
     await bindRepository({ projectId: 'project-1', repoFullName: 'owner/repo' });
@@ -101,6 +109,40 @@ describe('statistics service', () => {
       activityScore30d: 11,
       updatedAt: fixedNow,
     });
+  });
+
+  it('synchronizeProjectStatistics returns ok false for a missing project without creating config or snapshot rows', async () => {
+    const result = await synchronizeProjectStatistics('missing-project', {
+      now: () => fixedNow,
+      githubClient: clientReturning(statistics()),
+    });
+
+    expect(result).toMatchObject({
+      projectId: 'missing-project',
+      repoFullName: null,
+      ok: false,
+    });
+    expect(result.error).toMatch(/project missing-project was not found/i);
+    expect(statisticsRows()).toHaveLength(0);
+    expect(snapshots()).toHaveLength(0);
+  });
+
+  it('synchronizeProjectStatistics returns ok false for an unbound project without creating a fake snapshot', async () => {
+    insertProject('project-1');
+
+    const result = await synchronizeProjectStatistics('project-1', {
+      now: () => fixedNow,
+      githubClient: clientReturning(statistics()),
+    });
+
+    expect(result).toMatchObject({
+      projectId: 'project-1',
+      repoFullName: null,
+      ok: false,
+    });
+    expect(result.error).toMatch(/not bound/i);
+    expect(statisticsRows()).toHaveLength(0);
+    expect(snapshots()).toHaveLength(0);
   });
 
   it('synchronizeProjectStatistics preserves prior metrics and lastSuccessfulAt while recording fetch failures', async () => {
@@ -213,28 +255,30 @@ describe('statistics service', () => {
 
   it('createProjectFromGitHub creates a project and binding atomically and rejects duplicate repos without an orphan project', async () => {
     const beforeProjectCount = allProjects().length;
+    const metadataWithExtraTask8Fields = {
+      description: 'A useful repository',
+      topics: ['cli', 'typescript'],
+      language: 'TypeScript',
+      readmeText: 'README '.repeat(600),
+      // Unknown metadata from callers must not become Task 4 persisted project fields.
+      homepage: 'https://owner.example/repo',
+      avatarUrl: 'https://avatars.example/owner.png',
+    };
     const created = await createProjectFromGitHub({
       repoFullName: 'Owner/Repo',
-      metadata: {
-        description: 'A useful repository',
-        topics: ['cli', 'typescript'],
-        language: 'TypeScript',
-        readmeText: 'README '.repeat(600),
-        homepage: 'https://owner.example/repo',
-        avatarUrl: 'https://avatars.example/owner.png',
-      },
+      metadata: metadataWithExtraTask8Fields,
     });
 
     const project = projectFor(created.projectId);
     expect(project).toMatchObject({
       summary: 'A useful repository',
-      deployUrl: 'https://owner.example/repo',
+      deployUrl: 'https://github.com/Owner/Repo',
       buildingStyle: 'studio',
       growthStage: 'seed',
       visibility: 'private',
-      imageUrl: 'https://avatars.example/owner.png',
+      imageUrl: null,
     });
-    expect(project?.background).toContain('[GitHub] owner/repo');
+    expect(project?.background).toContain('[GitHub] Owner/Repo');
     expect(project?.background).toContain('A useful repository');
     expect(project?.background).toContain('Topics: cli, typescript');
     expect(project?.background?.length).toBeLessThanOrEqual(5000);
@@ -293,6 +337,11 @@ function snapshotFor(projectId: string) {
 function snapshots() {
   const { db } = getDatabase();
   return db.select().from(githubStatisticsSnapshots).all();
+}
+
+function statisticsRows() {
+  const { db } = getDatabase();
+  return db.select().from(projectStatistics).all();
 }
 
 function relatedCounts() {
