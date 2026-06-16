@@ -3,7 +3,7 @@ FROM node:22-alpine AS builder
 
 RUN apk add --no-cache python3 make g++ sqlite
 
-# Install pnpm v10 (v11 dropped onlyBuiltDependencies support)
+# Install pnpm v10 (v11 broke onlyBuiltDependencies)
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
 WORKDIR /app
@@ -11,6 +11,9 @@ COPY pnpm-lock.yaml package.json .npmrc ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
+
+# Rebuild native modules needed by the build step
+RUN pnpm rebuild esbuild sharp better-sqlite3 unrs-resolver 2>/dev/null; true
 RUN pnpm run build
 
 # Stage 2: Runtime
@@ -23,9 +26,11 @@ ENV NODE_ENV=production
 
 COPY pnpm-lock.yaml package.json .npmrc ./
 
-# Install runtime deps (build approval via .npmrc)
 RUN corepack enable && corepack prepare pnpm@10 --activate \
  && pnpm install --frozen-lockfile --ignore-scripts
+
+# Rebuild native modules needed at runtime
+RUN pnpm rebuild better-sqlite3 sharp 2>/dev/null; true
 
 # Copy build artifacts + runtime source
 COPY --from=builder /app/.next ./.next
