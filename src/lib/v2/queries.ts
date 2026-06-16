@@ -51,7 +51,6 @@ export type CurrentProjectCard = {
   evidenceCount: number;
   energy: number;
 };
-};
 
 export type AttentionItem = {
   observationId: string;
@@ -518,8 +517,27 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
     : [];
   const projectIdByEventId = new Map(visibleEventRows.map((event) => [event.id, event.projectId]));
 
-  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-  const now = Date.now();
+  // Batch-fetch GitHub stats for energy calculation
+  const projectIds = snapshotRows.map((s) => s.projectId);
+  const statsRows = projectIds.length
+    ? await db
+        .select()
+        .from(githubStatisticsSnapshots)
+        .where(inArray(githubStatisticsSnapshots.projectId, projectIds))
+    : [];
+  const energyByProjectId = new Map(
+    statsRows.map((stats) => [
+      stats.projectId,
+      Math.min(
+        activityScore30d({
+          commits30d: stats.commits30d,
+          pullRequests30d: stats.pullRequests30d,
+          issues30d: stats.issues30d,
+        }),
+        100,
+      ),
+    ]),
+  );
 
   return snapshotRows.map((snapshot) => {
     const visibleProjectIds = new Set([
@@ -533,13 +551,7 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
       }),
     );
 
-    // Energy = recent event count in last 30d, capped at 10
-    const recentEventCount = visibleEventRows.filter(
-      (event) =>
-        visibleProjectIds.has(event.projectId) &&
-        event.occurredAt.getTime() > now - THIRTY_DAYS_MS,
-    ).length;
-    const energy = Math.min(recentEventCount, 10);
+    const energy = energyByProjectId.get(snapshot.projectId) ?? 0;
 
     return {
       projectId: snapshot.projectId,
