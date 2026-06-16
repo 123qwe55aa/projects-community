@@ -68,6 +68,28 @@ function ProjectCard({ project }: { project: CurrentProjectCard }) {
         </span>
       </div>
 
+      {/* Energy bar: only for active projects */}
+      {project.lifecycleState === 'active' && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Energy
+            </span>
+            <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  project.energy > 0
+                    ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                    : 'bg-zinc-700'
+                }`}
+                style={{ width: `${project.energy * 10}%` }}
+              />
+            </div>
+            <span className="w-5 text-right text-xs text-zinc-500">{project.energy}</span>
+          </div>
+        </div>
+      )}
+
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <ProjectDetail label="Lifecycle rationale" value={project.lifecycleRationale} />
         <ProjectDetail label="Latest change" value={describeChange(latestChange)} />

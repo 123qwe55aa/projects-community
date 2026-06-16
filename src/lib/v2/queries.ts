@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte } from 'drizzle-orm';
 import { getDatabase } from '@/db';
 import {
   corrections,
   eventEvidence,
+  githubStatisticsSnapshots,
   hypothesisEvidence,
   observations,
   projectEvents,
@@ -12,6 +13,7 @@ import {
   signalEvidence,
   signals,
 } from '@/db/schema';
+import { activityScore30d } from '../statistics/classification';
 
 export type LifecycleState = 'active' | 'dormant' | 'ended' | 'archived';
 
@@ -47,6 +49,8 @@ export type CurrentProjectCard = {
   unresolvedQuestions: string[];
   recentChanges: Array<Record<string, unknown>>;
   evidenceCount: number;
+  energy: number;
+};
 };
 
 export type AttentionItem = {
@@ -514,6 +518,9 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
     : [];
   const projectIdByEventId = new Map(visibleEventRows.map((event) => [event.id, event.projectId]));
 
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
   return snapshotRows.map((snapshot) => {
     const visibleProjectIds = new Set([
       snapshot.projectId,
@@ -525,6 +532,15 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
         return eventProjectId && visibleProjectIds.has(eventProjectId) ? [evidence.observationId] : [];
       }),
     );
+
+    // Energy = recent event count in last 30d, capped at 10
+    const recentEventCount = visibleEventRows.filter(
+      (event) =>
+        visibleProjectIds.has(event.projectId) &&
+        event.occurredAt.getTime() > now - THIRTY_DAYS_MS,
+    ).length;
+    const energy = Math.min(recentEventCount, 10);
+
     return {
       projectId: snapshot.projectId,
       summary: snapshot.summary,
@@ -535,6 +551,7 @@ async function getCurrentProjects(): Promise<CurrentProjectCard[]> {
       unresolvedQuestions: parseStringArray(snapshot.unresolvedQuestions),
       recentChanges: parseObjectArray(snapshot.recentChanges),
       evidenceCount: evidenceIds.size,
+      energy,
     };
   });
 }
