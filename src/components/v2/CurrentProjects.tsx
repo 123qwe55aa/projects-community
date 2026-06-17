@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { useState, useMemo } from 'react';
 import type { CurrentProjectCard, LifecycleState } from '@/lib/v2/queries';
 import { EnergyBar } from '@/components/ui/EnergyBar';
 
@@ -11,7 +14,39 @@ const lifecycleStyles: Record<LifecycleState, string> = {
   archived: 'border-zinc-700 bg-zinc-800/60 text-zinc-400',
 };
 
+type SortKey = 'default' | 'name' | 'energy' | 'evidence';
+
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: 'default', label: 'State' },
+  { key: 'name', label: 'Name' },
+  { key: 'energy', label: 'Energy' },
+  { key: 'evidence', label: 'Evidence' },
+];
+
+function sortProjects(projects: CurrentProjectCard[], sortKey: SortKey): CurrentProjectCard[] {
+  const sorted = [...projects];
+  switch (sortKey) {
+    case 'name':
+      sorted.sort((a, b) => a.summary.localeCompare(b.summary));
+      break;
+    case 'energy':
+      sorted.sort((a, b) => b.energy - a.energy);
+      break;
+    case 'evidence':
+      sorted.sort((a, b) => b.evidenceCount - a.evidenceCount);
+      break;
+    case 'default':
+    default:
+      break; // keep insertion order (lifecycle then db)
+  }
+  return sorted;
+}
+
 export function CurrentProjects({ projects }: { projects: CurrentProjectCard[] }) {
+  const [sortKey, setSortKey] = useState<SortKey>('default');
+
+  const sortedProjects = useMemo(() => sortProjects(projects, sortKey), [projects, sortKey]);
+
   if (projects.length === 0) {
     return (
       <section aria-label="Current Projects">
@@ -24,26 +59,55 @@ export function CurrentProjects({ projects }: { projects: CurrentProjectCard[] }
 
   return (
     <section aria-label="Current Projects" className="space-y-8">
-      {lifecycleOrder.map((state) => {
-        const groupedProjects = projects.filter((project) => project.lifecycleState === state);
-        if (groupedProjects.length === 0) return null;
+      {/* Sort controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Sort by:</span>
+        <div className="flex flex-wrap gap-1">
+          {sortOptions.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setSortKey(key)}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                sortKey === key
+                  ? 'bg-emerald-800/60 text-emerald-200'
+                  : 'bg-zinc-800/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        return (
-          <div key={state} className="space-y-3">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold capitalize text-zinc-200">{state}</h2>
-              <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
-                {groupedProjects.length}
-              </span>
+      {/* Grouped or flat list depending on sort */}
+      {sortKey === 'default' ? (
+        lifecycleOrder.map((state) => {
+          const groupedProjects = sortedProjects.filter((project) => project.lifecycleState === state);
+          if (groupedProjects.length === 0) return null;
+
+          return (
+            <div key={state} className="space-y-3">
+              <div className="flex items-center gap-3">
+                <h2 className="text-sm font-semibold capitalize text-zinc-200">{state}</h2>
+                <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
+                  {groupedProjects.length}
+                </span>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {groupedProjects.map((project) => (
+                  <ProjectCard key={project.projectId} project={project} />
+                ))}
+              </div>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {groupedProjects.map((project) => (
-                <ProjectCard key={project.projectId} project={project} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {sortedProjects.map((project) => (
+            <ProjectCard key={project.projectId} project={project} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
