@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const primaryLinks = [
-  { href: '/', label: 'Dashboard', icon: '◉' },
+  { href: '/', label: 'Overview', icon: '◉' },
   { href: '/attention', label: 'Needs Attention', icon: '!' },
   { href: '/hypotheses', label: 'Hypotheses', icon: '◇' },
   { href: '/projects', label: 'Projects', icon: '▦' },
