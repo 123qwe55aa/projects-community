@@ -5,7 +5,8 @@ interface EnergyBarProps {
 }
 
 export function EnergyBar({ value, className = '', showValue = false }: EnergyBarProps) {
-  const clamped = Math.max(0, Math.min(100, value));
+  const safe = Number.isFinite(value) ? value : 0;
+  const clamped = Math.max(0, Math.min(100, safe));
   // Color shifts from zinc (inactive) through emerald to green as energy grows
   const barColor =
     clamped === 0
